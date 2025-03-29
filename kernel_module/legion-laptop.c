@@ -986,6 +986,25 @@ static const struct model_config model_necn = {
 	.ramio_size = 0x600
 };
 
+static const struct model_config model_n2cn = {
+    .registers = &ec_register_offsets_loq_v0,
+    .check_embedded_controller_id = true,
+    .embedded_controller_id = 0x5507,  // Legion Pro 7 16IRX9H EC chip ID
+    .memoryio_physical_ec_start = 0xC400,
+    .memoryio_size = 0x300,
+    .has_minifancurve = true,
+    .has_custom_powermode = true,
+    .access_method_powermode = ACCESS_METHOD_WMI,
+    .access_method_keyboard = ACCESS_METHOD_WMI2,
+    .access_method_fanspeed = ACCESS_METHOD_WMI3,
+    .access_method_temperature = ACCESS_METHOD_WMI3,
+    .access_method_fancurve = ACCESS_METHOD_EC3,
+    .access_method_fanfullspeed = ACCESS_METHOD_WMI3,
+    .acpi_check_dev = false,
+    .ramio_physical_start = 0xFE0B0400,
+    .ramio_size = 0x600
+};
+
 static const struct dmi_system_id denylist[] = { {} };
 
 static const struct dmi_system_id optimistic_allowlist[] = {
@@ -1351,6 +1370,18 @@ static const struct dmi_system_id optimistic_allowlist[] = {
 			DMI_MATCH(DMI_BIOS_VERSION, "NECN"),
 		},
 		.driver_data = (void *)&model_necn
+	},
+	{
+		// Legion Pro 7 16IRX9H (83DE)
+		// EC chip ID: 5507, EC Version: 2a4
+		// Features: fancurve, powermode, platformprofile, minifancurve, fancurve_pmw_speed, fancurve_rpm_speed
+		.ident = "N2CN",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "83DE"),
+			DMI_MATCH(DMI_BIOS_VERSION, "N2CN"),
+		},
+		.driver_data = (void *)&model_n2cn
 	},
 	{}
 };
@@ -6139,10 +6170,17 @@ static int legion_add(struct platform_device *pdev)
 
 	dev_info(
 		&pdev->dev,
-		"is_denied: %d; is_allowed: %d; do_load_by_list: %d; do_load: %d\n",
-		is_denied, is_allowed, do_load_by_list, do_load);
+		"Read identifying information: DMI_SYS_VENDOR: %s; DMI_PRODUCT_NAME: %s; DMI_BIOS_VERSION:%s\n",
+		dmi_get_system_info(DMI_SYS_VENDOR),
+		dmi_get_system_info(DMI_PRODUCT_NAME),
+		dmi_get_system_info(DMI_BIOS_VERSION));
 
-	if (!(do_load)) {
+	// Additional debug information for Legion Pro 7 16IRX9H (83DE)
+	if (strcmp(dmi_get_system_info(DMI_PRODUCT_NAME), "83DE") == 0) {
+		dev_info(&pdev->dev, "Legion Pro 7 16IRX9H (83DE) detected\n");
+		dev_info(&pdev->dev, "EC chip ID should be 0x5507, EC Version should be 0x2a4\n");
+		dev_info(&pdev->dev, "Supported features: fancurve, powermode, platformprofile, minifancurve, fancurve_pmw_speed, fancurve_rpm_speed\n");
+	}
 		dev_info(
 			&pdev->dev,
 			"Module not usable for this laptop because it is not in allowlist. Notify the maintainer if you want to add your device or force load with param force.\n");
@@ -6197,6 +6235,12 @@ static int legion_add(struct platform_device *pdev)
 
 	ec_read_id = read_ec_id(&priv->ecram, priv->conf);
 	dev_info(&pdev->dev, "Read embedded controller ID 0x%x\n", ec_read_id);
+	
+	// Additional debug for Legion Pro 7 16IRX9H (83DE)
+	if (strcmp(dmi_get_system_info(DMI_PRODUCT_NAME), "83DE") == 0) {
+		u16 ec_version = read_ec_version(&priv->ecram, priv->conf);
+		dev_info(&pdev->dev, "Legion Pro 7 16IRX9H: EC version 0x%x (expected 0x2a4)\n", ec_version);
+	}
 	skip_ec_id_check = force || (!priv->conf->check_embedded_controller_id);
 	is_ec_id_valid = skip_ec_id_check ||
 			 (ec_read_id == priv->conf->embedded_controller_id);
