@@ -1026,6 +1026,28 @@ static const struct model_config model_nrcn = {
 	.ramio_size = 0x600
 };
 
+// Legion Pro 7 16IAX10H (2025) - Model 83F5
+// Intel Core Ultra 9 275HX, RTX 5090 Laptop, 3 fans
+// EC ID 0x5508 (ITE IT5508) verified on hardware
+static const struct model_config model_q7cn = {
+	.registers = &ec_register_offsets_v0,
+	.check_embedded_controller_id = true,
+	.embedded_controller_id = 0x5508,
+	.memoryio_physical_ec_start = 0xC400,
+	.memoryio_size = 0x300,
+	.has_minifancurve = false,
+	.has_custom_powermode = true,
+	.access_method_powermode = ACCESS_METHOD_WMI,
+	// RGB keyboard controlled via USB, not WMI
+	.access_method_keyboard = ACCESS_METHOD_NO_ACCESS,
+	.access_method_fanspeed = ACCESS_METHOD_WMI3,
+	.access_method_temperature = ACCESS_METHOD_WMI3,
+	.access_method_fancurve = ACCESS_METHOD_WMI3,
+	.access_method_fanfullspeed = ACCESS_METHOD_WMI,
+	.acpi_check_dev = false,
+	.ramio_physical_start = 0xFE0B0400,
+	.ramio_size = 0x600
+};
 
 static const struct dmi_system_id denylist[] = { {} };
 
@@ -1420,6 +1442,16 @@ static const struct dmi_system_id optimistic_allowlist[] = {
 			DMI_MATCH(DMI_BIOS_VERSION, "NRCN"),
 		},
 		.driver_data = (void *)&model_nrcn
+	},
+	{
+		// Legion Pro 7 16IAX10H (83F5)
+		// Intel Core Ultra 9 275HX, RTX 5090 Laptop
+		.ident = "Q7CN",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_BIOS_VERSION, "Q7CN"),
+		},
+		.driver_data = (void *)&model_q7cn
 	},
 	{}
 };
@@ -5065,7 +5097,8 @@ static int legion_platform_profile_probe(void *drvdata, unsigned long *choices)
 	set_bit(PLATFORM_PROFILE_QUIET, choices);
 	set_bit(PLATFORM_PROFILE_BALANCED, choices);
 	set_bit(PLATFORM_PROFILE_PERFORMANCE, choices);
-	if (conf_has_custom_powermode && conf_access_method_powermode == ACCESS_METHOD_WMI) {
+	if (conf_has_custom_powermode &&
+	    conf_access_method_powermode == ACCESS_METHOD_WMI) {
 		set_bit(PLATFORM_PROFILE_BALANCED_PERFORMANCE, choices);
 	}
 
@@ -5113,7 +5146,8 @@ static int legion_platform_profile_init(struct legion_private *priv)
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
-	priv->ppdev = devm_platform_profile_register(dev, "lenovo-legion", priv, &legion_platform_profile_ops);
+	priv->ppdev = devm_platform_profile_register(
+		dev, "lenovo-legion", priv, &legion_platform_profile_ops);
 	if (IS_ERR(priv->ppdev))
 		return PTR_ERR(priv->ppdev);
 #else
