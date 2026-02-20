@@ -221,6 +221,9 @@ struct model_config {
 
 	phys_addr_t ramio_physical_start;
 	size_t ramio_size;
+
+	/* Number of fans: 2 for most models, 3 for Q7CN and similar */
+	int num_fans;
 };
 
 /* =================================== */
@@ -1044,7 +1047,8 @@ static const struct model_config model_q7cn = {
 	.access_method_fanfullspeed = ACCESS_METHOD_WMI,
 	.acpi_check_dev = false,
 	.ramio_physical_start = 0xFE0B0400,
-	.ramio_size = 0x600
+	.ramio_size = 0x600,
+	.num_fans = 3
 };
 
 static const struct dmi_system_id denylist[] = { {} };
@@ -1787,6 +1791,8 @@ enum OtherMethodFeature {
 
 	OtherMethodFeature_FAN_SPEED_1 = 0x04030001,
 	OtherMethodFeature_FAN_SPEED_2 = 0x04030002,
+	/* Fan ID 4 (3rd fan) - confirmed via ACPI WMAE method */
+	OtherMethodFeature_FAN_SPEED_4 = 0x04030004,
 
 	OtherMethodFeature_C_U1 = 0x05010000,
 	OtherMethodFeature_TEMP_CPU = 0x05040000,
@@ -2121,7 +2127,8 @@ static u16 read_ec_version(struct ecram *ecram,
 
 struct sensor_values {
 	u16 fan1_rpm; // current speed in rpm of fan 1
-	u16 fan2_rpm; // current speed in rpm of fan2
+	u16 fan2_rpm; // current speed in rpm of fan 2
+	u16 fan3_rpm; // current speed in rpm of fan 3 (if present)
 	u16 fan1_target_rpm; // target speed in rpm of fan 1
 	u16 fan2_target_rpm; // target speed in rpm of fan 2
 	u8 cpu_temp_celsius; // cpu temperature in Celsius
@@ -2136,7 +2143,8 @@ enum SENSOR_ATTR {
 	SENSOR_FAN1_RPM_ID = 4,
 	SENSOR_FAN2_RPM_ID = 5,
 	SENSOR_FAN1_TARGET_RPM_ID = 6,
-	SENSOR_FAN2_TARGET_RPM_ID = 7
+	SENSOR_FAN2_TARGET_RPM_ID = 7,
+	SENSOR_FAN3_RPM_ID = 8
 };
 
 /* ============================= */
@@ -2792,7 +2800,7 @@ static ssize_t wmi_read_temperature_gz(int sensor_id, int *temperature)
 	return err;
 }
 
-// fan_id: 0 or 1
+// fan_id: 0, 1, or 2 (3rd fan uses WMI feature ID 4, not 3)
 static ssize_t wmi_read_fanspeed_other(int fan_id, int *fanspeed_rpm)
 {
 	int err;
@@ -2803,6 +2811,8 @@ static ssize_t wmi_read_fanspeed_other(int fan_id, int *fanspeed_rpm)
 		featured_id = OtherMethodFeature_FAN_SPEED_1;
 	else if (fan_id == 1)
 		featured_id = OtherMethodFeature_FAN_SPEED_2;
+	else if (fan_id == 2)
+		featured_id = OtherMethodFeature_FAN_SPEED_4;
 	else {
 		return -EINVAL;
 	}
@@ -3485,13 +3495,15 @@ enum legion_ec_powermode {
 	LEGION_EC_POWERMODE_QUIET = 2,
 	LEGION_EC_POWERMODE_BALANCED = 0,
 	LEGION_EC_POWERMODE_PERFORMANCE = 1,
-	LEGION_EC_POWERMODE_CUSTOM = 3
+	LEGION_EC_POWERMODE_CUSTOM = 3,
+	LEGION_EC_POWERMODE_EXTREME = 4
 };
 
 enum legion_wmi_powermode {
 	LEGION_WMI_POWERMODE_QUIET = 1,
 	LEGION_WMI_POWERMODE_BALANCED = 2,
 	LEGION_WMI_POWERMODE_PERFORMANCE = 3,
+	LEGION_WMI_POWERMODE_EXTREME = 224,
 	LEGION_WMI_POWERMODE_CUSTOM = 255
 };
 
@@ -3506,6 +3518,8 @@ static enum legion_wmi_powermode ec_to_wmi_powermode(int ec_mode)
 		return LEGION_WMI_POWERMODE_PERFORMANCE;
 	case LEGION_EC_POWERMODE_CUSTOM:
 		return LEGION_WMI_POWERMODE_CUSTOM;
+	case LEGION_EC_POWERMODE_EXTREME:
+		return LEGION_WMI_POWERMODE_EXTREME;
 	default:
 		return LEGION_WMI_POWERMODE_BALANCED;
 	}
@@ -3523,6 +3537,8 @@ wmi_to_ec_powermode(enum legion_wmi_powermode wmi_mode)
 		return LEGION_EC_POWERMODE_PERFORMANCE;
 	case LEGION_WMI_POWERMODE_CUSTOM:
 		return LEGION_EC_POWERMODE_CUSTOM;
+	case LEGION_WMI_POWERMODE_EXTREME:
+		return LEGION_EC_POWERMODE_EXTREME;
 	default:
 		return LEGION_EC_POWERMODE_BALANCED;
 	}
@@ -3537,7 +3553,7 @@ static ssize_t ec_read_powermode(struct legion_private *priv, int *powermode)
 
 static ssize_t ec_write_powermode(struct legion_private *priv, u8 value)
 {
-	if (!(value <= 2 || value == 255)) {
+	if (!(value <= LEGION_EC_POWERMODE_EXTREME || value == 255)) {
 		pr_info("Unexpected power mode value ignored: %d\n", value);
 		return -EINVAL;
 	}
@@ -3574,6 +3590,7 @@ static ssize_t wmi_write_powermode(u8 value)
 {
 	if (!((value >= LEGION_WMI_POWERMODE_QUIET &&
 	       value <= LEGION_WMI_POWERMODE_PERFORMANCE) ||
+	      value == LEGION_WMI_POWERMODE_EXTREME ||
 	      value == LEGION_WMI_POWERMODE_CUSTOM)) {
 		pr_info("Unexpected power mode value ignored: %d\n", value);
 		return -EINVAL;
@@ -4934,6 +4951,9 @@ static int legion_platform_profile_get(struct platform_profile_handler *pprof,
 	case LEGION_WMI_POWERMODE_QUIET:
 		*profile = PLATFORM_PROFILE_QUIET;
 		break;
+	case LEGION_WMI_POWERMODE_EXTREME:
+		*profile = PLATFORM_PROFILE_PERFORMANCE;
+		break;
 	case LEGION_WMI_POWERMODE_CUSTOM:
 		*profile = PLATFORM_PROFILE_BALANCED_PERFORMANCE;
 		break;
@@ -5098,6 +5118,9 @@ static ssize_t sensor_label_show(struct device *dev,
 	case SENSOR_FAN2_RPM_ID:
 		label = "Fan 2\n";
 		break;
+	case SENSOR_FAN3_RPM_ID:
+		label = "Fan 3\n";
+		break;
 	case SENSOR_FAN1_TARGET_RPM_ID:
 		label = "Fan 1 Target\n";
 		break;
@@ -5140,6 +5163,9 @@ static ssize_t sensor_show(struct device *dev, struct device_attribute *devattr,
 	case SENSOR_FAN2_RPM_ID:
 		err = read_fanspeed(priv, 1, &outval);
 		break;
+	case SENSOR_FAN3_RPM_ID:
+		err = read_fanspeed(priv, 2, &outval);
+		break;
 	case SENSOR_FAN1_TARGET_RPM_ID:
 		ec_read_sensor_values(&priv->ecram, priv->conf, &values);
 		outval = values.fan1_target_rpm;
@@ -5170,6 +5196,8 @@ static SENSOR_DEVICE_ATTR_RO(fan1_input, sensor, SENSOR_FAN1_RPM_ID);
 static SENSOR_DEVICE_ATTR_RO(fan1_label, sensor_label, SENSOR_FAN1_RPM_ID);
 static SENSOR_DEVICE_ATTR_RO(fan2_input, sensor, SENSOR_FAN2_RPM_ID);
 static SENSOR_DEVICE_ATTR_RO(fan2_label, sensor_label, SENSOR_FAN2_RPM_ID);
+static SENSOR_DEVICE_ATTR_RO(fan3_input, sensor, SENSOR_FAN3_RPM_ID);
+static SENSOR_DEVICE_ATTR_RO(fan3_label, sensor_label, SENSOR_FAN3_RPM_ID);
 static SENSOR_DEVICE_ATTR_RO(fan1_target, sensor, SENSOR_FAN1_TARGET_RPM_ID);
 static SENSOR_DEVICE_ATTR_RO(fan2_target, sensor, SENSOR_FAN2_TARGET_RPM_ID);
 
@@ -5184,6 +5212,8 @@ static struct attribute *sensor_hwmon_attributes[] = {
 	&sensor_dev_attr_fan1_label.dev_attr.attr,
 	&sensor_dev_attr_fan2_input.dev_attr.attr,
 	&sensor_dev_attr_fan2_label.dev_attr.attr,
+	&sensor_dev_attr_fan3_input.dev_attr.attr,
+	&sensor_dev_attr_fan3_label.dev_attr.attr,
 	&sensor_dev_attr_fan1_target.dev_attr.attr,
 	&sensor_dev_attr_fan2_target.dev_attr.attr,
 	NULL
@@ -5815,9 +5845,23 @@ static umode_t legion_hwmon_is_visible(struct kobject *kobj,
 	return supported ? attr->mode : 0;
 }
 
+static umode_t legion_hwmon_sensor_is_visible(struct kobject *kobj,
+					      struct attribute *attr, int idx)
+{
+	struct device *dev = kobj_to_dev(kobj);
+	struct legion_private *priv = dev_get_drvdata(dev);
+
+	if ((attr == &sensor_dev_attr_fan3_input.dev_attr.attr ||
+	     attr == &sensor_dev_attr_fan3_label.dev_attr.attr) &&
+	    priv->conf->num_fans < 3)
+		return 0;
+
+	return attr->mode;
+}
+
 static const struct attribute_group legion_hwmon_sensor_group = {
 	.attrs = sensor_hwmon_attributes,
-	.is_visible = NULL
+	.is_visible = legion_hwmon_sensor_is_visible
 };
 
 static const struct attribute_group legion_hwmon_fancurve_group = {
