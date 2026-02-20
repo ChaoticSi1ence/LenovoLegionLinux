@@ -9,7 +9,7 @@ Release: 1
 Source0: https://github.com/albertosottile/darkdetect/archive/refs/tags/v%{version}.tar.gz
 Source1: https://raw.githubusercontent.com/johnfanv2/LenovoLegionLinux/main/deploy/build_packages/setup.cfg
 Source2: https://raw.githubusercontent.com/johnfanv2/LenovoLegionLinux/main/deploy/build_packages/setup.py
-License: Custom
+License: BSD-3-Clause
 Group: Development/Libraries
 BuildArch: noarch
 BuildRequires:  python3-devel
@@ -17,7 +17,7 @@ BuildRequires:  python3-setuptools
 BuildRequires:  python3-wheel
 BuildRequires:  python3-pip
 Vendor: Alberto Sottile <asottile@gmail.com>
-Packager: Gonçalo Negrier Duarte <gonegrier.duarte@gamil.com>
+Packager: Gonçalo Negrier Duarte <gonegrier.duarte@gmail.com>
 Url: https://github.com/albertosottile/darkdetect
 
 %description

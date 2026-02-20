@@ -21,7 +21,7 @@ mkdir -p "${BUILD_DIR}"
 
 # Clone
 cd "${BUILD_DIR}"
-git clone --depth 1 --branch "v${KERNEL_VERSION}" git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+git clone --depth 1 --branch "v${KERNEL_VERSION}" https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 cd ${BUILD_DIR}/linux
 git checkout "v${KERNEL_VERSION}"
 

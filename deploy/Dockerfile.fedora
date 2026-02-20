@@ -1,4 +1,4 @@
-FROM fedora:39
+FROM fedora:41
 
 # does not work
 # FROM redhat/ubi9
@@ -7,8 +7,6 @@ FROM fedora:39
 
 # does not work (kernel version mismatch->package mismatch)
 # FROM rockylinux:8
-
-ARG DEBIAN_FRONTEND=noninteractive
 
 # Install sudo (used in scripts that are tested)
 RUN dnf -y install sudo

@@ -7,6 +7,7 @@
 #define BUF_LEN (10 * (sizeof(struct inotify_event) + NAME_MAX + 1))
 
 LEGIOND_CONFIG config;
+pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int delayed = 0;
 bool triggered = false;
@@ -26,11 +27,12 @@ void term_handler(int signum)
 {
 	close(fd);
 	clear_socket();
-	exit(0);
+	_exit(0);
 }
 
 void timer_handler(union sigval sigev_value)
 {
+	pthread_mutex_lock(&state_mutex);
 	pretty("config reload start");
 	parseconf(&config);
 	pretty("config reload end");
@@ -42,6 +44,7 @@ void timer_handler(union sigval sigev_value)
 
 	triggered = true;
 	pretty("set_all end");
+	pthread_mutex_unlock(&state_mutex);
 }
 
 void set_timer(struct itimerspec *its, long delay_s, long delay_ns,
@@ -59,7 +62,8 @@ int main()
 	// remove socket before create it
 	clear_socket();
 
-	parseconf(&config);
+	if (parseconf(&config) != 0)
+		printf("Warning: failed to parse config, using defaults\n");
 
 	// calculate delay
 	long delay_s = (int)delay;
@@ -78,51 +82,77 @@ int main()
 	sev.sigev_value.sival_ptr = &timerid;
 	sev.sigev_notify_attributes = NULL;
 
-	timer_create(CLOCK_REALTIME, &sev, &timerid);
+	if (timer_create(CLOCK_REALTIME, &sev, &timerid) == -1) {
+		printf("timer_create failed\n");
+		return 1;
+	}
 
 	// init socket
 	fd = socket(AF_UNIX, SOCK_STREAM, 0);
-	struct sockaddr_un addr;
-	addr.sun_family = AF_UNIX;
-	strcpy(addr.sun_path, socket_path);
-
-	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-		exit(1);
+	if (fd == -1) {
+		printf("socket() failed\n");
+		return 1;
 	}
 
-	listen(fd, 5);
-
-	// run fancurve-set on startup
-	set_timer(&its, delay, 0, timerid);
-
-	// setup SIGTERM handler
+	// setup SIGTERM handler early so socket file is cleaned up
 	struct sigaction action;
 	memset(&action, 0, sizeof(action));
 	action.sa_handler = term_handler;
 	sigaction(SIGTERM, &action, NULL);
 
+	struct sockaddr_un addr;
+	addr.sun_family = AF_UNIX;
+	strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
+	addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
+
+	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+		exit(1);
+	}
+
+	if (listen(fd, 5) == -1) {
+		printf("listen() failed\n");
+		return 1;
+	}
+
+	// run fancurve-set on startup
+	set_timer(&its, delay_s, delay_ns, timerid);
+
 	// inotify power-state/power-profile watcher
 	inotify_fd = inotify_init();
-	inotify_add_watch(inotify_fd, profile_path, IN_MODIFY);
-	inotify_add_watch(inotify_fd, ac_path, IN_MODIFY);
+	if (inotify_fd == -1) {
+		printf("inotify_init() failed, skipping inotify setup\n");
+	} else {
+		if (inotify_add_watch(inotify_fd, profile_path, IN_MODIFY) ==
+		    -1)
+			printf("Warning: inotify_add_watch failed for profile_path\n");
+		if (inotify_add_watch(inotify_fd, ac_path, IN_MODIFY) == -1)
+			printf("Warning: inotify_add_watch failed for ac_path\n");
+	}
 
 	// listen
 	while (1) {
 		FD_ZERO(&readfds);
 		FD_SET(fd, &readfds);
-		FD_SET(inotify_fd, &readfds);
+		maxfd = fd;
+		if (inotify_fd != -1) {
+			FD_SET(inotify_fd, &readfds);
+			if (inotify_fd > maxfd)
+				maxfd = inotify_fd;
+		}
 
-		maxfd = (fd > inotify_fd) ? fd : inotify_fd;
-
-		select(maxfd + 1, &readfds, NULL, NULL, NULL);
+		if (select(maxfd + 1, &readfds, NULL, NULL, NULL) <= 0)
+			continue;
 
 		if (FD_ISSET(fd, &readfds)) {
 			client_fd = accept(fd, NULL, NULL);
+			if (client_fd == -1)
+				continue;
 			memset(ret, 0, sizeof(ret));
-			recv(client_fd, ret, sizeof(ret), 0);
+			recv(client_fd, ret, sizeof(ret) - 1, 0);
 			printf("cmd: \"%s\" received\n", ret);
 			close(client_fd);
 
+			pthread_mutex_lock(&state_mutex);
 			if (ret[0] == 'A') {
 				// delayed means user use legiond-ctl fanset with a parameter
 				triggered = false;
@@ -136,7 +166,8 @@ int main()
 				} else {
 					printf("reset timer with delay\n");
 					int delay;
-					sscanf(ret, "A%d", &delay);
+					if (sscanf(ret, "A%d", &delay) != 1)
+						delay = (int)delay_s;
 					set_timer(&its, delay, 0, timerid);
 					delayed = delay;
 				}
@@ -152,12 +183,13 @@ int main()
 			} else {
 				printf("do nothing\n");
 			}
+			pthread_mutex_unlock(&state_mutex);
 		}
 
-		if (FD_ISSET(inotify_fd, &readfds)) {
-			int lengh = read(inotify_fd, buffer, BUF_LEN);
+		if (inotify_fd != -1 && FD_ISSET(inotify_fd, &readfds)) {
+			int length = read(inotify_fd, buffer, BUF_LEN);
 			char *p = buffer;
-			while (p < buffer + lengh) {
+			while (length > 0 && p < buffer + length) {
 				event = (struct inotify_event *)p;
 				if (event->mask & IN_MODIFY) {
 					pretty("power-state/power-profile change");

@@ -32,7 +32,7 @@
  *        the firmware for this mode, so the fan curve might
  *        have to be reconfigured if needed.
  *
- *  It implements the usual hwmon interface to monitor fan speed and temmperature
+ *  It implements the usual hwmon interface to monitor fan speed and temperature
  *  and allows to set the fan curve inside the firmware.
  *
  *    - /sys/class/hwmon/X/fan1_input or /sys/class/hwmon/X/fan2_input  (ro)
@@ -46,15 +46,15 @@
  *    - /sys/class/hwmon/X/pwmY_auto_pointZ_temp (rw)
  *          upper temperature of tempZ (CPU, GPU, or IC) at the Y-level in the fan curve
  *    - /sys/class/hwmon/X/pwmY_auto_pointZ_temp_hyst (rw)
- *          hysteris (CPU, GPU, or IC) at the Y-level in the fan curve. The lower
- *          temperatue of the level is the upper temperature minus the hysteris
+ *          hysteresis (CPU, GPU, or IC) at the Y-level in the fan curve. The lower
+ *          temperature of the level is the upper temperature minus the hysteresis
  *
  *
  *  Credits for reverse engineering the firmware to:
  *      - David Woodhouse: heavily inspired by lenovo_laptop.c
  *      - Luke Cama: Windows version "LegionFanControl"
  *      - SmokelessCPU: reverse engineering of custom registers in EC
- *                      and commincation method with EC via ports
+ *                      and communication method with EC via ports
  *      - 0x1F9F1: additional reverse engineering for complete fan curve
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -98,7 +98,6 @@ MODULE_PARM_DESC(
 	enable_platformprofile,
 	"Enable the platform profile sysfs API to read and write the power mode.");
 
-// TODO: remove this?
 #define LEGIONFEATURES \
 	"fancurve powermode platformprofile platformprofilenotify minifancurve fancurve_pmw_speed fancurve_rpm_speed"
 
@@ -207,7 +206,6 @@ struct model_config {
 	phys_addr_t memoryio_physical_ec_start;
 	size_t memoryio_size;
 
-	// TODO: maybe use bitfield
 	bool has_minifancurve;
 	bool has_custom_powermode;
 	enum access_method access_method_powermode;
@@ -1111,15 +1109,6 @@ static const struct dmi_system_id optimistic_allowlist[] = {
 	},
 	{
 		// Release year: 2022
-		.ident = "J2CN",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
-			DMI_MATCH(DMI_BIOS_VERSION, "J2CN"),
-		},
-		.driver_data = (void *)&model_v0
-	},
-	{
-		// Release year: 2022
 		.ident = "JUCN",
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
@@ -1200,7 +1189,7 @@ static const struct dmi_system_id optimistic_allowlist[] = {
 		.driver_data = (void *)&model_jncn
 	},
 	{
-		// 2020, seems very different in ACPI dissassembly
+		// 2020, seems very different in ACPI disassembly
 		.ident = "E9CN",
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
@@ -1492,12 +1481,6 @@ static int exec_sbmc(acpi_handle handle, unsigned long arg)
 	return exec_simple_method(handle, "VPC0.SBMC", arg);
 }
 
-//static int eval_qcho(acpi_handle handle, unsigned long *res)
-//{
-//	// \_SB.PCI0.LPC0.EC0.QCHO
-//	return eval_int(handle, "QCHO", res);
-//}
-
 static int eval_gbmd(acpi_handle handle, unsigned long *res)
 {
 	return eval_int(handle, "VPC0.GBMD", res);
@@ -1528,21 +1511,17 @@ static int acpi_process_buffer_to_ints(const char *id_name, int id_nr,
 	out = out_buffer->pointer;
 	if (!out) {
 		pr_info("Unexpected ACPI result for %s:%d\n", id_name, id_nr);
-		error = -AE_ERROR;
+		error = -EIO;
 		goto err;
 	}
 
 	if (out->type != ACPI_TYPE_BUFFER || out->buffer.length != ressize) {
-		pr_info("Unexpected ACPI result for %s:%d: expected type %d but got %d; expected length %lu but got %u;\n",
+		pr_info("Unexpected ACPI result for %s:%d: expected type %d but got %d; expected length %zu but got %u;\n",
 			id_name, id_nr, ACPI_TYPE_BUFFER, out->type, ressize,
 			out->buffer.length);
-		error = -AE_ERROR;
+		error = -EIO;
 		goto err;
 	}
-
-	// Reduced verbosity (only printing when ACPI result have bad parameters)
-	//	pr_info("ACPI result for %s:%d: ACPI buffer length: %u\n", id_name,
-	//		id_nr, out->buffer.length);
 
 	for (i = 0; i < ressize; ++i)
 		res[i] = out->buffer.pointer[i];
@@ -1552,19 +1531,6 @@ err:
 	kfree(out);
 	return error;
 }
-
-//static int exec_ints(acpi_handle handle, const char *method_name,
-//		     struct acpi_object_list *params, u8 *res, size_t ressize)
-//{
-//	acpi_status status;
-//	struct acpi_buffer out_buffer = { ACPI_ALLOCATE_BUFFER, NULL };
-
-//	status = acpi_evaluate_object(handle, (acpi_string)method_name, params,
-//				      &out_buffer);
-
-//	return acpi_process_buffer_to_ints(method_name, 0, status, &out_buffer,
-//					   res, ressize);
-//}
 
 static int wmi_exec_ints(const char *guid, u8 instance, u32 method_id,
 			 const struct acpi_buffer *params, u8 *res,
@@ -1599,15 +1565,15 @@ static int wmi_exec_int(const char *guid, u8 instance, u32 method_id,
 
 	out = out_buffer.pointer;
 	if (!out) {
-		pr_info("Unexpected ACPI result for %s:%d", guid, method_id);
-		error = -AE_ERROR;
+		pr_info("Unexpected ACPI result for %s:%d\n", guid, method_id);
+		error = -EIO;
 		goto err;
 	}
 
 	if (out->type != ACPI_TYPE_INTEGER) {
 		pr_info("Unexpected ACPI result for %s:%d: expected type %d but got %d\n",
 			guid, method_id, ACPI_TYPE_INTEGER, out->type);
-		error = -AE_ERROR;
+		error = -EIO;
 		goto err;
 	}
 
@@ -1697,6 +1663,7 @@ static int wmi_exec_arg(const char *guid, u8 instance, u32 method_id, void *arg,
 #define WMI_METHOD_ID_GETGSYNCSTATUS 41
 #define WMI_METHOD_ID_SETGSYNCSTATUS 42
 //smartFanMode = powermode
+/* Note: ISSUPPORTSMARTFAN and ISSUPPORTOD share method ID 49 in firmware */
 #define WMI_METHOD_ID_ISSUPPORTSMARTFAN 49
 #define WMI_METHOD_ID_GETSMARTFANMODE 45
 #define WMI_METHOD_ID_SETSMARTFANMODE 44
@@ -1853,7 +1820,7 @@ struct ecram_memoryio {
 
 	// physical address of remapped IO, depends on model and firmware
 	phys_addr_t physical_start;
-	// start adress of region in ec memory
+	// start address of region in ec memory
 	phys_addr_t physical_ec_start;
 	// virtual address of remapped IO
 	u8 *virtual_start;
@@ -1878,7 +1845,8 @@ static ssize_t ecram_memoryio_init(struct ecram_memoryio *ec_memoryio,
 		ec_memoryio->physical_start = physical_start;
 		ec_memoryio->physical_ec_start = physical_ec_start;
 		ec_memoryio->size = size;
-		pr_info("Successfully mapped embedded controller: 0x%llx (in RAM)/0x%llx (in EC) to virtual 0x%p\n",
+		pr_debug(
+			"Successfully mapped embedded controller: 0x%llx (in RAM)/0x%llx (in EC) to virtual 0x%p\n",
 			ec_memoryio->physical_start,
 			ec_memoryio->physical_ec_start,
 			ec_memoryio->virtual_start);
@@ -1893,7 +1861,8 @@ static ssize_t ecram_memoryio_init(struct ecram_memoryio *ec_memoryio,
 static void ecram_memoryio_exit(struct ecram_memoryio *ec_memoryio)
 {
 	if (ec_memoryio->virtual_start != NULL) {
-		pr_info("Unmapping embedded controller memory at 0x%llx (in RAM)/0x%llx (in EC) at virtual 0x%p\n",
+		pr_debug(
+			"Unmapping embedded controller memory at 0x%llx (in RAM)/0x%llx (in EC) at virtual 0x%p\n",
 			ec_memoryio->physical_start,
 			ec_memoryio->physical_ec_start,
 			ec_memoryio->virtual_start);
@@ -1904,16 +1873,17 @@ static void ecram_memoryio_exit(struct ecram_memoryio *ec_memoryio)
 
 /* Read a byte from the EC RAM.
  *
- * Return status because of commong signature for alle
+ * Return status because of common signature for all
  * methods to access EC RAM.
  */
 static ssize_t ecram_memoryio_read(const struct ecram_memoryio *ec_memoryio,
 				   u16 ec_offset, u8 *value)
 {
-	if (ec_offset < ec_memoryio->physical_ec_start) {
-		pr_info("Unexpected read at offset %d into EC RAM\n",
+	if (ec_offset < ec_memoryio->physical_ec_start ||
+	    ec_offset >= ec_memoryio->physical_ec_start + ec_memoryio->size) {
+		pr_info("Unexpected read at offset 0x%x into EC RAM\n",
 			ec_offset);
-		return -1;
+		return -EINVAL;
 	}
 	*value = *(ec_memoryio->virtual_start +
 		   (ec_offset - ec_memoryio->physical_ec_start));
@@ -1922,16 +1892,17 @@ static ssize_t ecram_memoryio_read(const struct ecram_memoryio *ec_memoryio,
 
 /* Write a byte to the EC RAM.
  *
- * Return status because of commong signature for alle
+ * Return status because of common signature for all
  * methods to access EC RAM.
  */
-static ssize_t ecram_memoryio_write(const struct ecram_memoryio *ec_memoryio,
-				    u16 ec_offset, u8 value)
+static ssize_t __maybe_unused ecram_memoryio_write(
+	const struct ecram_memoryio *ec_memoryio, u16 ec_offset, u8 value)
 {
-	if (ec_offset < ec_memoryio->physical_ec_start) {
-		pr_info("Unexpected write at offset %d into EC RAM\n",
+	if (ec_offset < ec_memoryio->physical_ec_start ||
+	    ec_offset >= ec_memoryio->physical_ec_start + ec_memoryio->size) {
+		pr_info("Unexpected write at offset 0x%x into EC RAM\n",
 			ec_offset);
-		return -1;
+		return -EINVAL;
 	}
 	*(ec_memoryio->virtual_start +
 	  (ec_offset - ec_memoryio->physical_ec_start)) = value;
@@ -1991,7 +1962,6 @@ static ssize_t ecram_portio_init(struct ecram_portio *ec_portio)
 			ECRAM_PORTIO_PORTS_SIZE, ECRAM_PORTIO_START_PORT);
 		return -ENODEV;
 	}
-	//pr_info("Reserved %x ports starting at %x\n", ECRAM_PORTIO_PORTS_SIZE, ECRAM_PORTIO_START_PORT);
 	mutex_init(&ec_portio->io_port_mutex);
 	return 0;
 }
@@ -2003,7 +1973,7 @@ static void ecram_portio_exit(struct ecram_portio *ec_portio)
 
 /* Read a byte from the EC RAM.
  *
- * Return status because of commong signature for alle
+ * Return status because of common signature for all
  * methods to access EC RAM.
  */
 static ssize_t ecram_portio_read(struct ecram_portio *ec_portio, u16 offset,
@@ -2034,7 +2004,7 @@ static ssize_t ecram_portio_read(struct ecram_portio *ec_portio, u16 offset,
 
 /* Write a byte to the EC RAM.
  *
- * Return status because of commong signature for alle
+ * Return status because of common signature for all
  * methods to access EC RAM.
  */
 static ssize_t ecram_portio_write(struct ecram_portio *ec_portio, u16 offset,
@@ -2060,8 +2030,6 @@ static ssize_t ecram_portio_write(struct ecram_portio *ec_portio, u16 offset,
 	outb(value, ECRAM_PORTIO_DATA_PORT);
 
 	mutex_unlock(&ec_portio->io_port_mutex);
-	// TODO: remove this
-	//pr_info("Writing %d to addr %x\n", value, offset);
 	return 0;
 }
 
@@ -2093,9 +2061,9 @@ err_ecram_portio_init:
 
 static void ecram_exit(struct ecram *ecram)
 {
-	pr_info("Unloading legion ecram\n");
+	pr_debug("Unloading legion ecram\n");
 	ecram_portio_exit(&ecram->portio);
-	pr_info("Unloading legion ecram done\n");
+	pr_debug("Unloading legion ecram done\n");
 }
 
 /** Read from EC RAM
@@ -2123,8 +2091,7 @@ static void ecram_write(struct ecram *ecram, u16 ecram_offset, u8 value)
 	}
 	err = ecram_portio_write(&ecram->portio, ecram_offset, value);
 	if (err)
-		pr_info("Error writing EC RAM to 0x%x: Read-Only.\n",
-			ecram_offset);
+		pr_info("Error writing EC RAM at 0x%x\n", ecram_offset);
 }
 
 /* =============================== */
@@ -2157,9 +2124,9 @@ struct sensor_values {
 	u16 fan2_rpm; // current speed in rpm of fan2
 	u16 fan1_target_rpm; // target speed in rpm of fan 1
 	u16 fan2_target_rpm; // target speed in rpm of fan 2
-	u8 cpu_temp_celsius; // cpu temperature in celcius
-	u8 gpu_temp_celsius; // gpu temperature in celcius
-	u8 ic_temp_celsius; // ic temperature in celcius
+	u8 cpu_temp_celsius; // cpu temperature in Celsius
+	u8 gpu_temp_celsius; // gpu temperature in Celsius
+	u8 ic_temp_celsius; // ic temperature in Celsius
 };
 
 enum SENSOR_ATTR {
@@ -2185,9 +2152,9 @@ enum fan_speed_unit {
 };
 
 struct fancurve_point {
-	// rpm1 devided by 100
+	// rpm1 divided by 100
 	u8 speed1;
-	// rpm2 devided by 100
+	// rpm2 divided by 100
 	u8 speed2;
 	// >=2 , <=5 (lower is faster); must increase by level
 	u8 accel;
@@ -2200,13 +2167,13 @@ struct fancurve_point {
 	u8 cpu_max_temp_celsius;
 	// <=127 cpu min temp for this level; must increase by level
 	u8 cpu_min_temp_celsius;
-	// <=127 gpu min temp for this level; must increase by level
-	u8 gpu_max_temp_celsius;
 	// <=127 gpu max temp for this level; must increase by level
+	u8 gpu_max_temp_celsius;
+	// <=127 gpu min temp for this level; must increase by level
 	u8 gpu_min_temp_celsius;
 	// <=127 ic max temp for this level; must increase by level
 	u8 ic_max_temp_celsius;
-	// <=127 ic max temp for this level; must increase by level
+	// <=127 ic min temp for this level; must increase by level
 	u8 ic_min_temp_celsius;
 };
 
@@ -2265,7 +2232,7 @@ static bool fancurve_set_speed_pwm(struct fancurve *fancurve, int point_id,
 		return false;
 	}
 	if (!(point_id < fancurve->size && fan_id >= 0 && fan_id < 2)) {
-		pr_err("Setting point id %d, fan id %d not valid for fancurve with size %ld",
+		pr_err("Setting point id %d, fan id %d not valid for fancurve with size %zu",
 		       point_id, fan_id, fancurve->size);
 		return false;
 	}
@@ -2274,7 +2241,7 @@ static bool fancurve_set_speed_pwm(struct fancurve *fancurve, int point_id,
 
 	switch (fancurve->fan_speed_unit) {
 	case FAN_SPEED_UNIT_PERCENT:
-		*speed = clamp_t(u8, value * 100 / 255, 0, 255);
+		*speed = clamp_t(u8, value * 100 / 255, 0, 100);
 		return true;
 	case FAN_SPEED_UNIT_PWM:
 		*speed = clamp_t(u8, value, 0, 255);
@@ -2283,11 +2250,10 @@ static bool fancurve_set_speed_pwm(struct fancurve *fancurve, int point_id,
 		*speed = clamp_t(u8, value * MAX_RPM / 100 / 255, 0, 255);
 		return true;
 	default:
-		pr_info("No method to set for fan_speed_unit %d.",
+		pr_info("No method to set for fan_speed_unit %d.\n",
 			fancurve->fan_speed_unit);
 		return false;
 	}
-	return false;
 }
 
 static bool fancurve_get_speed_pwm(const struct fancurve *fancurve,
@@ -2295,47 +2261,36 @@ static bool fancurve_get_speed_pwm(const struct fancurve *fancurve,
 {
 	int speed;
 
-	pr_info("%s 1 point id=%d, fancurve=%p, fancurve.fan_speed_unit=%d, fancurve.size=%ld",
-		__func__, point_id, (void *)fancurve, fancurve->fan_speed_unit,
-		fancurve->size);
-
 	if (!(point_id < fancurve->size && fan_id >= 0 && fan_id < 2)) {
-		pr_err("Reading point id %d, fan id %d not valid for fancurve with size %ld",
+		pr_err("Reading point id %d, fan id %d not valid for fancurve with size %zu",
 		       point_id, fan_id, fancurve->size);
 		return false;
 	}
-	pr_info("%s 2", __func__);
-
 	speed = fan_id == 0 ? fancurve->points[point_id].speed1 :
 			      fancurve->points[point_id].speed2;
 
 	switch (fancurve->fan_speed_unit) {
 	case FAN_SPEED_UNIT_PERCENT:
 		*value = speed * 255 / 100;
-		pr_info("%s 3a", __func__);
 		return true;
 	case FAN_SPEED_UNIT_PWM:
 		*value = speed;
-		pr_info("%s 3b", __func__);
 		return true;
 	case FAN_SPEED_UNIT_RPM_HUNDRED:
 		*value = speed * 255 * 100 / MAX_RPM;
-		pr_info("%s 3c", __func__);
 		return true;
 	default:
-		pr_info("No method to get for fan_speed_unit %d.",
+		pr_info("No method to get for fan_speed_unit %d.\n",
 			fancurve->fan_speed_unit);
 		return false;
 	}
-	return false;
 }
-
-// TODO: remove { ... } from single line if body
 
 static bool fancurve_set_accel(struct fancurve *fancurve, int point_id,
 			       int accel)
 {
-	bool valid = accel >= 2 && accel <= 5;
+	bool valid = point_id >= 0 && point_id < MAXFANCURVESIZE &&
+		     accel >= 2 && accel <= 5;
 
 	if (valid)
 		fancurve->points[point_id].accel = accel;
@@ -2345,7 +2300,8 @@ static bool fancurve_set_accel(struct fancurve *fancurve, int point_id,
 static bool fancurve_set_decel(struct fancurve *fancurve, int point_id,
 			       int decel)
 {
-	bool valid = decel >= 2 && decel <= 5;
+	bool valid = point_id >= 0 && point_id < MAXFANCURVESIZE &&
+		     decel >= 2 && decel <= 5;
 
 	if (valid)
 		fancurve->points[point_id].decel = decel;
@@ -2355,7 +2311,8 @@ static bool fancurve_set_decel(struct fancurve *fancurve, int point_id,
 static bool fancurve_set_cpu_temp_max(struct fancurve *fancurve, int point_id,
 				      int value)
 {
-	bool valid = fancurve_is_valid_max_temp(value);
+	bool valid = point_id >= 0 && point_id < MAXFANCURVESIZE &&
+		     fancurve_is_valid_max_temp(value);
 
 	if (valid)
 		fancurve->points[point_id].cpu_max_temp_celsius = value;
@@ -2366,7 +2323,8 @@ static bool fancurve_set_cpu_temp_max(struct fancurve *fancurve, int point_id,
 static bool fancurve_set_gpu_temp_max(struct fancurve *fancurve, int point_id,
 				      int value)
 {
-	bool valid = fancurve_is_valid_max_temp(value);
+	bool valid = point_id >= 0 && point_id < MAXFANCURVESIZE &&
+		     fancurve_is_valid_max_temp(value);
 
 	if (valid)
 		fancurve->points[point_id].gpu_max_temp_celsius = value;
@@ -2376,7 +2334,8 @@ static bool fancurve_set_gpu_temp_max(struct fancurve *fancurve, int point_id,
 static bool fancurve_set_ic_temp_max(struct fancurve *fancurve, int point_id,
 				     int value)
 {
-	bool valid = fancurve_is_valid_max_temp(value);
+	bool valid = point_id >= 0 && point_id < MAXFANCURVESIZE &&
+		     fancurve_is_valid_max_temp(value);
 
 	if (valid)
 		fancurve->points[point_id].ic_max_temp_celsius = value;
@@ -2386,7 +2345,8 @@ static bool fancurve_set_ic_temp_max(struct fancurve *fancurve, int point_id,
 static bool fancurve_set_cpu_temp_min(struct fancurve *fancurve, int point_id,
 				      int value)
 {
-	bool valid = fancurve_is_valid_max_temp(value);
+	bool valid = point_id >= 0 && point_id < MAXFANCURVESIZE &&
+		     fancurve_is_valid_min_temp(value);
 
 	if (valid)
 		fancurve->points[point_id].cpu_min_temp_celsius = value;
@@ -2396,7 +2356,8 @@ static bool fancurve_set_cpu_temp_min(struct fancurve *fancurve, int point_id,
 static bool fancurve_set_gpu_temp_min(struct fancurve *fancurve, int point_id,
 				      int value)
 {
-	bool valid = fancurve_is_valid_min_temp(value);
+	bool valid = point_id >= 0 && point_id < MAXFANCURVESIZE &&
+		     fancurve_is_valid_min_temp(value);
 
 	if (valid)
 		fancurve->points[point_id].gpu_min_temp_celsius = value;
@@ -2406,7 +2367,8 @@ static bool fancurve_set_gpu_temp_min(struct fancurve *fancurve, int point_id,
 static bool fancurve_set_ic_temp_min(struct fancurve *fancurve, int point_id,
 				     int value)
 {
-	bool valid = fancurve_is_valid_min_temp(value);
+	bool valid = point_id >= 0 && point_id < MAXFANCURVESIZE &&
+		     fancurve_is_valid_min_temp(value);
 
 	if (valid)
 		fancurve->points[point_id].ic_min_temp_celsius = value;
@@ -2435,6 +2397,7 @@ static bool fancurve_set_size(struct fancurve *fancurve, int size,
 		for (i = fancurve->size; i < size; ++i)
 			fancurve->points[i] = fancurve->points[last];
 	}
+	fancurve->size = size;
 	return true;
 }
 
@@ -2443,9 +2406,9 @@ static ssize_t fancurve_print_seqfile(const struct fancurve *fancurve,
 {
 	int i;
 
-	seq_printf(s, "Fan curve current point id: %ld\n",
+	seq_printf(s, "Fan curve current point id: %zu\n",
 		   fancurve->current_point_i);
-	seq_printf(s, "Fan curve points size: %ld\n", fancurve->size);
+	seq_printf(s, "Fan curve points size: %zu\n", fancurve->size);
 
 	seq_printf(
 		s,
@@ -2456,7 +2419,7 @@ static ssize_t fancurve_print_seqfile(const struct fancurve *fancurve,
 		const struct fancurve_point *point = &fancurve->points[i];
 
 		fancurve_get_speed_pwm(fancurve, i, 0, &speed_pwm1);
-		fancurve_get_speed_pwm(fancurve, i, 0, &speed_pwm2);
+		fancurve_get_speed_pwm(fancurve, i, 1, &speed_pwm2);
 
 		seq_printf(
 			s,
@@ -2489,7 +2452,6 @@ struct light {
 // without dynamic memory allocation (instead global _priv)
 struct legion_private {
 	struct platform_device *platform_device;
-	// TODO: remove or keep? init?
 	struct acpi_device *adev;
 
 	// Method to access ECRAM
@@ -2497,7 +2459,6 @@ struct legion_private {
 	// Configuration with registers and ECRAM access method
 	const struct model_config *conf;
 
-	// TODO: maybe refactor and keep only local to each function
 	// last known fan curve
 	struct fancurve fancurve;
 	// configured fan curve from user space
@@ -2519,10 +2480,8 @@ struct legion_private {
 	struct light ylogo_light;
 	struct light iport_light;
 
-	// TODO: remove?
 	bool loaded;
 
-	// TODO: remove, only for reverse enginnering
 	struct ecram_memoryio ec_memoryio;
 };
 
@@ -2540,13 +2499,12 @@ static int legion_shared_init(struct legion_private *priv)
 	if (!legion_shared) {
 		legion_shared = priv;
 		mutex_init(&legion_shared->fancurve_mutex);
+		priv->loaded = true;
 		ret = 0;
 	} else {
 		pr_warn("Found multiple platform devices\n");
 		ret = -EINVAL;
 	}
-
-	priv->loaded = true;
 	mutex_unlock(&legion_shared_mutex);
 
 	return ret;
@@ -2554,14 +2512,14 @@ static int legion_shared_init(struct legion_private *priv)
 
 static void legion_shared_exit(struct legion_private *priv)
 {
-	pr_info("Unloading legion shared\n");
+	pr_debug("Unloading legion shared\n");
 	mutex_lock(&legion_shared_mutex);
 
 	if (legion_shared == priv)
 		legion_shared = NULL;
 
 	mutex_unlock(&legion_shared_mutex);
-	pr_info("Unloading legion shared done\n");
+	pr_debug("Unloading legion shared done\n");
 }
 
 static int get_simple_wmi_attribute(struct legion_private *priv,
@@ -2580,9 +2538,6 @@ static int get_simple_wmi_attribute(struct legion_private *priv,
 	if (err)
 		return -EINVAL;
 
-	// TODO: remove later
-	pr_info("%swith raw value: %ld\n", __func__, state);
-
 	state = state * scale;
 
 	if (invert)
@@ -2596,7 +2551,7 @@ static int get_simple_wmi_attribute_bool(struct legion_private *priv,
 					 u32 method_id, bool invert,
 					 unsigned long scale, bool *value)
 {
-	unsigned long int_val = *value;
+	unsigned long int_val = 0;
 	int err = get_simple_wmi_attribute(priv, guid, instance, method_id,
 					   invert, scale, &int_val);
 	*value = int_val;
@@ -2655,10 +2610,6 @@ static int ec_read_sensor_values(struct ecram *ecram,
 	values->ic_temp_celsius =
 		ecram_read(ecram, model->registers->EXT_IC_TEMP_INPUT);
 
-	values->cpu_temp_celsius = ecram_read(ecram, 0xC5E6);
-	values->gpu_temp_celsius = ecram_read(ecram, 0xC5E7);
-	values->ic_temp_celsius = ecram_read(ecram, 0xC5E8);
-
 	return 0;
 }
 
@@ -2666,20 +2617,16 @@ static ssize_t ec_read_temperature(struct ecram *ecram,
 				   const struct model_config *model,
 				   int sensor_id, int *temperature)
 {
-	int err = 0;
-	unsigned long res;
-
 	if (sensor_id == 0) {
-		res = ecram_read(ecram, 0xC5E6);
+		*temperature =
+			ecram_read(ecram, model->registers->EXT_CPU_TEMP_INPUT);
 	} else if (sensor_id == 1) {
-		res = ecram_read(ecram, 0xC5E7);
+		*temperature =
+			ecram_read(ecram, model->registers->EXT_GPU_TEMP_INPUT);
 	} else {
-		// TODO: use all correct error codes
-		return -EEXIST;
+		return -EINVAL;
 	}
-	if (!err)
-		*temperature = res;
-	return err;
+	return 0;
 }
 
 static ssize_t ec_read_fanspeed(struct ecram *ecram,
@@ -2700,8 +2647,7 @@ static ssize_t ec_read_fanspeed(struct ecram *ecram,
 					model->registers->EXT_FAN2_RPM_MSB))
 		       << 8);
 	} else {
-		// TODO: use all correct error codes
-		return -EEXIST;
+		return -EINVAL;
 	}
 	if (!err)
 		*fanspeed_rpm = res;
@@ -2725,8 +2671,7 @@ static ssize_t acpi_read_fanspeed(struct legion_private *priv, int fan_id,
 	} else if (fan_id == 1) {
 		acpi_path = ACPI_PATH_FAN_SPEED2;
 	} else {
-		// TODO: use all correct error codes
-		return -EEXIST;
+		return -EINVAL;
 	}
 	err = eval_int(priv->adev->handle, acpi_path, &acpi_value);
 	if (!err)
@@ -2751,8 +2696,7 @@ static ssize_t acpi_read_temperature(struct legion_private *priv, int fan_id,
 	} else if (fan_id == 1) {
 		acpi_path = ACPI_PATH_GPU_TEMP;
 	} else {
-		// TODO: use all correct error codes
-		return -EEXIST;
+		return -EINVAL;
 	}
 	err = eval_int(priv->adev->handle, acpi_path, &acpi_value);
 	if (!err)
@@ -2767,7 +2711,7 @@ static ssize_t wmi_read_fanspeed(int fan_id, int *fanspeed_rpm)
 	unsigned long res;
 	struct acpi_buffer params;
 
-	params.length = 1;
+	params.length = sizeof(fan_id);
 	params.pointer = &fan_id;
 
 	err = wmi_exec_int(WMI_GUID_LENOVO_FAN_METHOD, 0,
@@ -2790,11 +2734,10 @@ static ssize_t wmi_read_temperature(int sensor_id, int *temperature)
 	else if (sensor_id == 1)
 		sensor_id = 0x04;
 	else {
-		// TODO: use all correct error codes
-		return -EEXIST;
+		return -EINVAL;
 	}
 
-	params.length = 1;
+	params.length = sizeof(sensor_id);
 	params.pointer = &sensor_id;
 
 	err = wmi_exec_int(WMI_GUID_LENOVO_FAN_METHOD, 0,
@@ -2818,8 +2761,7 @@ static ssize_t wmi_read_fanspeed_gz(int fan_id, int *fanspeed_rpm)
 	else if (fan_id == 1)
 		method_id = WMI_METHOD_ID_GETFAN2SPEED;
 	else {
-		// TODO: use all correct error codes
-		return -EEXIST;
+		return -EINVAL;
 	}
 	err = wmi_exec_noarg_int(LEGION_WMI_GAMEZONE_GUID, 0, method_id, &res);
 
@@ -2840,8 +2782,7 @@ static ssize_t wmi_read_temperature_gz(int sensor_id, int *temperature)
 	else if (sensor_id == 1)
 		method_id = WMI_METHOD_ID_GETGPUTEMP;
 	else {
-		// TODO: use all correct error codes
-		return -EEXIST;
+		return -EINVAL;
 	}
 
 	err = wmi_exec_noarg_int(LEGION_WMI_GAMEZONE_GUID, 0, method_id, &res);
@@ -2863,8 +2804,7 @@ static ssize_t wmi_read_fanspeed_other(int fan_id, int *fanspeed_rpm)
 	else if (fan_id == 1)
 		featured_id = OtherMethodFeature_FAN_SPEED_2;
 	else {
-		// TODO: use all correct error codes
-		return -EEXIST;
+		return -EINVAL;
 	}
 
 	err = wmi_other_method_get_value(featured_id, &res);
@@ -2886,8 +2826,7 @@ static ssize_t wmi_read_temperature_other(int sensor_id, int *temperature)
 	else if (sensor_id == 1)
 		featured_id = OtherMethodFeature_TEMP_GPU;
 	else {
-		// TODO: use all correct error codes
-		return -EEXIST;
+		return -EINVAL;
 	}
 
 	err = wmi_other_method_get_value(featured_id, &res);
@@ -2899,7 +2838,6 @@ static ssize_t wmi_read_temperature_other(int sensor_id, int *temperature)
 static ssize_t read_fanspeed(struct legion_private *priv, int fan_id,
 			     int *speed_rpm)
 {
-	// TODO: use enums or function pointers?
 	switch (priv->conf->access_method_fanspeed) {
 	case ACCESS_METHOD_EC:
 		return ec_read_fanspeed(&priv->ecram, priv->conf, fan_id,
@@ -2922,7 +2860,6 @@ static ssize_t read_fanspeed(struct legion_private *priv, int fan_id,
 static ssize_t read_temperature(struct legion_private *priv, int sensor_id,
 				int *temperature)
 {
-	// TODO: use enums or function pointers?
 	switch (priv->conf->access_method_temperature) {
 	case ACCESS_METHOD_EC:
 		return ec_read_temperature(&priv->ecram, priv->conf, sensor_id,
@@ -2990,13 +2927,9 @@ static ssize_t wmi_read_fancurve_custom(const struct model_config *model,
 
 	// The output buffer from the ACPI call is 88 bytes and larger
 	// than the returned object
-	pr_info("Size of object: %lu\n", sizeof(struct WMIFanTableRead));
 	err = wmi_exec_noarg_ints(WMI_GUID_LENOVO_FAN_METHOD, 0,
 				  WMI_METHOD_ID_FAN_GET_TABLE, buffer,
 				  sizeof(buffer));
-	print_hex_dump(KERN_DEBUG, "legion_laptop fan table wmi buffer",
-		       DUMP_PREFIX_ADDRESS, 16, 1, buffer, sizeof(buffer),
-		       true);
 	if (!err) {
 		struct WMIFanTableRead *fantable =
 			(struct WMIFanTableRead *)&buffer[0];
@@ -3052,9 +2985,6 @@ static ssize_t wmi_write_fancurve_custom(const struct model_config *model,
 	buffer[0x16] = fancurve->points[8].speed1;
 	buffer[0x18] = fancurve->points[9].speed1;
 
-	print_hex_dump(KERN_DEBUG, "legion_laptop fan table wmi write buffer",
-		       DUMP_PREFIX_ADDRESS, 16, 1, buffer, sizeof(buffer),
-		       true);
 	err = wmi_exec_arg(WMI_GUID_LENOVO_FAN_METHOD, 0,
 			   WMI_METHOD_ID_FAN_SET_TABLE, buffer, sizeof(buffer));
 	return err;
@@ -3162,7 +3092,7 @@ static int ec_write_fancurve_legion(struct ecram *ecram,
 	}
 
 	// Reset current fan level to 0, so algorithm in EC
-	// selects fan curve point again and resetting hysterisis
+	// selects fan curve point again and resetting hysteresis
 	// effects
 	ecram_write(ecram, model->registers->EXT_FAN_CUR_POINT, 0);
 
@@ -3174,7 +3104,7 @@ static int ec_write_fancurve_legion(struct ecram *ecram,
 	return 0;
 }
 
-#define FANCURVESIZE_IDEAPDAD 8
+#define FANCURVESIZE_IDEAPAD 8
 
 static int ec_read_fancurve_ideapad(struct ecram *ecram,
 				    const struct model_config *model,
@@ -3183,7 +3113,7 @@ static int ec_read_fancurve_ideapad(struct ecram *ecram,
 	size_t i = 0;
 
 	fancurve->fan_speed_unit = FAN_SPEED_UNIT_RPM_HUNDRED;
-	for (i = 0; i < FANCURVESIZE_IDEAPDAD; ++i) {
+	for (i = 0; i < FANCURVESIZE_IDEAPAD; ++i) {
 		struct fancurve_point *point = &fancurve->points[i];
 
 		point->speed1 =
@@ -3207,7 +3137,7 @@ static int ec_read_fancurve_ideapad(struct ecram *ecram,
 
 	// Do not trust that hardware; It might suddenly report
 	// a larger size, so clamp it.
-	fancurve->size = FANCURVESIZE_IDEAPDAD;
+	fancurve->size = FANCURVESIZE_IDEAPAD;
 	fancurve->current_point_i =
 		ecram_read(ecram, model->registers->EXT_FAN_CUR_POINT);
 	fancurve->current_point_i =
@@ -3229,7 +3159,7 @@ static int ec_write_fancurve_ideapad(struct ecram *ecram,
 	// Reset fan update counters (try to avoid any race conditions)
 	ecram_write(ecram, 0xC5FE, 0);
 	ecram_write(ecram, 0xC5FF, 0);
-	for (i = 0; i < FANCURVESIZE_IDEAPDAD; ++i) {
+	for (i = 0; i < FANCURVESIZE_IDEAPAD; ++i) {
 		const struct fancurve_point *point = &fancurve->points[i];
 
 		ecram_write(ecram, model->registers->EXT_FAN1_BASE + i,
@@ -3238,10 +3168,6 @@ static int ec_write_fancurve_ideapad(struct ecram *ecram,
 		ecram_write(ecram, model->registers->EXT_FAN2_BASE + i,
 			    point->speed2);
 		valr2 = ecram_read(ecram, model->registers->EXT_FAN2_BASE + i);
-		pr_info("Writing fan1: %d; reading fan1: %d\n", point->speed1,
-			valr1);
-		pr_info("Writing fan2: %d; reading fan2: %d\n", point->speed2,
-			valr2);
 
 		// write to memory and repeat 8 bytes later again
 		ecram_write(ecram, model->registers->EXT_CPU_TEMP + i,
@@ -3347,10 +3273,6 @@ static int ec_write_fancurve_loq(struct ecram *ecram,
 			    point->speed2);
 		valr2 = ecram_read(ecram, model->registers->EXT_FAN2_BASE +
 						  (i * struct_offset));
-		pr_info("Writing fan1: %d; reading fan1: %d\n", point->speed1,
-			valr1);
-		pr_info("Writing fan2: %d; reading fan2: %d\n", point->speed2,
-			valr2);
 
 		// write to memory and repeat 8 bytes later again
 		ecram_write(ecram,
@@ -3369,8 +3291,6 @@ static int ec_write_fancurve_loq(struct ecram *ecram,
 
 static int read_fancurve(struct legion_private *priv, struct fancurve *fancurve)
 {
-	// TODO: use enums or function pointers?
-	pr_info("Reading fancurve"); // TODO: remove that
 	switch (priv->conf->access_method_fancurve) {
 	case ACCESS_METHOD_EC:
 		return ec_read_fancurve_legion(&priv->ecram, priv->conf,
@@ -3392,7 +3312,6 @@ static int read_fancurve(struct legion_private *priv, struct fancurve *fancurve)
 static int write_fancurve(struct legion_private *priv,
 			  const struct fancurve *fancurve, bool write_size)
 {
-	// TODO: use enums or function pointers?
 	switch (priv->conf->access_method_fancurve) {
 	case ACCESS_METHOD_EC:
 		return ec_write_fancurve_legion(&priv->ecram, priv->conf,
@@ -3412,8 +3331,8 @@ static int write_fancurve(struct legion_private *priv,
 	}
 }
 
-#define MINIFANCUVE_ON_COOL_ON 0x04
-#define MINIFANCUVE_ON_COOL_OFF 0xA0
+#define MINIFANCURVE_ON_COOL_ON 0x04
+#define MINIFANCURVE_ON_COOL_OFF 0xA0
 
 static int ec_read_minifancurve(struct ecram *ecram,
 				const struct model_config *model, bool *state)
@@ -3422,16 +3341,16 @@ static int ec_read_minifancurve(struct ecram *ecram,
 		ecram_read(ecram, model->registers->EXT_MINIFANCURVE_ON_COOL);
 
 	switch (value) {
-	case MINIFANCUVE_ON_COOL_ON:
+	case MINIFANCURVE_ON_COOL_ON:
 		*state = true;
 		break;
-	case MINIFANCUVE_ON_COOL_OFF:
+	case MINIFANCURVE_ON_COOL_OFF:
 		*state = false;
 		break;
 	default:
 		pr_info("Unexpected value in MINIFANCURVE register: %d\n",
 			value);
-		return -1;
+		return -EIO;
 	}
 	return 0;
 }
@@ -3440,7 +3359,7 @@ static ssize_t ec_write_minifancurve(struct ecram *ecram,
 				     const struct model_config *model,
 				     bool state)
 {
-	u8 val = state ? MINIFANCUVE_ON_COOL_ON : MINIFANCUVE_ON_COOL_OFF;
+	u8 val = state ? MINIFANCURVE_ON_COOL_ON : MINIFANCURVE_ON_COOL_OFF;
 
 	ecram_write(ecram, model->registers->EXT_MINIFANCURVE_ON_COOL, val);
 	return 0;
@@ -3475,7 +3394,7 @@ static int ec_read_lockfancontroller(struct ecram *ecram,
 	default:
 		pr_info("Unexpected value in lockfanspeed register: %d\n",
 			value);
-		return -1;
+		return -EIO;
 	}
 	return 0;
 }
@@ -3498,7 +3417,7 @@ static int ec_read_fanfullspeed(struct ecram *ecram,
 	default:
 		pr_info("Unexpected value in maximumfanspeed register: %d\n",
 			value);
-		return -1;
+		return -EIO;
 	}
 	return 0;
 }
@@ -3529,7 +3448,6 @@ static ssize_t wmi_write_fanfullspeed(struct legion_private *priv, bool state)
 
 static ssize_t read_fanfullspeed(struct legion_private *priv, bool *state)
 {
-	// TODO: use enums or function pointers?
 	switch (priv->conf->access_method_fanfullspeed) {
 	case ACCESS_METHOD_EC:
 		return ec_read_fanfullspeed(&priv->ecram, priv->conf, state);
@@ -3619,9 +3537,9 @@ static ssize_t ec_read_powermode(struct legion_private *priv, int *powermode)
 
 static ssize_t ec_write_powermode(struct legion_private *priv, u8 value)
 {
-	if (!((value >= 0 && value <= 2) || value == 255)) {
+	if (!(value <= 2 || value == 255)) {
 		pr_info("Unexpected power mode value ignored: %d\n", value);
-		return -ENOMEM;
+		return -EINVAL;
 	}
 	ecram_write(&priv->ecram, priv->conf->registers->EXT_POWERMODE, value);
 	return 0;
@@ -3658,7 +3576,7 @@ static ssize_t wmi_write_powermode(u8 value)
 	       value <= LEGION_WMI_POWERMODE_PERFORMANCE) ||
 	      value == LEGION_WMI_POWERMODE_CUSTOM)) {
 		pr_info("Unexpected power mode value ignored: %d\n", value);
-		return -ENOMEM;
+		return -EINVAL;
 	}
 	return wmi_exec_arg(LEGION_WMI_GAMEZONE_GUID, 0,
 			    WMI_METHOD_ID_SETSMARTFANMODE, &value,
@@ -3690,9 +3608,6 @@ static ssize_t write_powermode(struct legion_private *priv,
 {
 	ssize_t res;
 
-	//TODO: remove again
-	pr_info("Set powermode\n");
-
 	switch (priv->conf->access_method_powermode) {
 	case ACCESS_METHOD_EC:
 		res = ec_write_powermode(priv, wmi_to_ec_powermode(value));
@@ -3714,12 +3629,17 @@ static void toggle_powermode(struct legion_private *priv)
 {
 	int old_powermode;
 	int next_powermode;
+	int err;
 
-	read_powermode(priv, &old_powermode);
+	err = read_powermode(priv, &old_powermode);
+	if (err) {
+		pr_info("Failed to read power mode: %d\n", err);
+		return;
+	}
 	next_powermode = old_powermode == 0 ? 1 : 0;
 
 	write_powermode(priv, next_powermode);
-	mdelay(1500);
+	msleep(1500);
 	write_powermode(priv, old_powermode);
 }
 
@@ -3761,8 +3681,6 @@ static int acpi_write_rapidcharge(struct acpi_device *adev, bool state)
 					   FCT_RAPID_CHARGE_OFF;
 
 	err = exec_sbmc(adev->handle, fct_nr);
-	pr_info("Set rapidcharge to %d by calling %lu: result: %d\n", state,
-		fct_nr, err);
 	return err;
 }
 
@@ -3782,16 +3700,6 @@ static ssize_t legion_kbd_bl2_brightness_get(struct legion_private *priv)
 
 	return state;
 }
-
-//static int legion_kbd_bl2_brightness_set(struct legion_private *priv,
-//					 unsigned int brightness)
-//{
-//	u8 in_param = brightness;
-
-//	return wmi_exec_arg(LEGION_WMI_GAMEZONE_GUID, 0,
-//			    WMI_METHOD_ID_SETKEYBOARDLIGHT, &in_param,
-//			    sizeof(in_param));
-//}
 
 //min: 1, max: 3
 #define LIGHT_ID_KEYBOARD 0x00
@@ -3908,12 +3816,10 @@ static int debugfs_ecmemoryram_show(struct seq_file *s, void *unused)
 
 DEFINE_SHOW_ATTRIBUTE(debugfs_ecmemoryram);
 
-//TODO: make (almost) all methods static
-
 static void seq_file_print_with_error(struct seq_file *s, const char *name,
 				      ssize_t err, int value)
 {
-	seq_printf(s, "%s error: %ld\n", name, err);
+	seq_printf(s, "%s error: %zd\n", name, err);
 	seq_printf(s, "%s: %d\n", name, value);
 }
 
@@ -4070,13 +3976,10 @@ static void legion_debugfs_init(struct legion_private *priv)
 {
 	struct dentry *dir;
 
-	// TODO: remove this note
 	// Note: like other kernel modules, do not catch errors here
 	// because if kernel is build without debugfs this
 	// will return an error but module still has to
 	// work, just without debugfs
-	// TODO: what permissions; some modules do 400
-	// other do 444
 	dir = debugfs_create_dir(LEGION_DRVR_SHORTNAME, NULL);
 	debugfs_create_file("fancurve", 0444, dir, priv,
 			    &debugfs_fancurve_fops);
@@ -4090,11 +3993,11 @@ static void legion_debugfs_init(struct legion_private *priv)
 
 static void legion_debugfs_exit(struct legion_private *priv)
 {
-	pr_info("Unloading legion dubugfs\n");
+	pr_debug("Unloading legion debugfs\n");
 	// The following is does nothing if pointer is NULL
 	debugfs_remove_recursive(priv->debugfs_dir);
 	priv->debugfs_dir = NULL;
-	pr_info("Unloading legion dubugfs done\n");
+	pr_debug("Unloading legion debugfs done\n");
 }
 
 /* =============================  */
@@ -4159,7 +4062,7 @@ static int store_simple_wmi_attribute(struct device *dev,
 				      const char *guid, u8 instance,
 				      u32 method_id, bool invert, int scale)
 {
-	int state;
+	unsigned int state;
 	int err;
 	struct legion_private *priv = dev_get_drvdata(dev);
 
@@ -4235,7 +4138,7 @@ static ssize_t rapidcharge_store(struct device *dev,
 				 size_t count)
 {
 	struct legion_private *priv = dev_get_drvdata(dev);
-	int state;
+	unsigned int state;
 	int err;
 
 	err = kstrtouint(buf, 0, &state);
@@ -4383,7 +4286,7 @@ static ssize_t thermalmode_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(thermalmode);
 
-// TOOD: probably remove again because provided by other means; only useful for overclocking
+// TODO: probably remove again because provided by other means; only useful for overclocking
 static ssize_t cpumaxfrequency_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
@@ -4498,7 +4401,7 @@ static ssize_t cpu_peak_powerlimit_show(struct device *dev,
 					char *buf)
 {
 	return show_simple_wmi_attribute(dev, attr, buf,
-					 WMI_GUID_LENOVO_GPU_METHOD, 0,
+					 WMI_GUID_LENOVO_CPU_METHOD, 0,
 					 WMI_METHOD_ID_CPU_GET_PEAK_POWERLIMIT,
 					 false, 1);
 }
@@ -4508,7 +4411,7 @@ static ssize_t cpu_peak_powerlimit_store(struct device *dev,
 					 const char *buf, size_t count)
 {
 	return store_simple_wmi_attribute(dev, attr, buf, count,
-					  WMI_GUID_LENOVO_GPU_METHOD, 0,
+					  WMI_GUID_LENOVO_CPU_METHOD, 0,
 					  WMI_METHOD_ID_CPU_SET_PEAK_POWERLIMIT,
 					  false, 1);
 }
@@ -4520,7 +4423,7 @@ static ssize_t cpu_apu_sppt_powerlimit_show(struct device *dev,
 					    char *buf)
 {
 	return show_simple_wmi_attribute(
-		dev, attr, buf, WMI_GUID_LENOVO_GPU_METHOD, 0,
+		dev, attr, buf, WMI_GUID_LENOVO_CPU_METHOD, 0,
 		WMI_METHOD_ID_CPU_GET_APU_SPPT_POWERLIMIT, false, 1);
 }
 
@@ -4529,7 +4432,7 @@ static ssize_t cpu_apu_sppt_powerlimit_store(struct device *dev,
 					     const char *buf, size_t count)
 {
 	return store_simple_wmi_attribute(
-		dev, attr, buf, count, WMI_GUID_LENOVO_GPU_METHOD, 0,
+		dev, attr, buf, count, WMI_GUID_LENOVO_CPU_METHOD, 0,
 		WMI_METHOD_ID_CPU_SET_APU_SPPT_POWERLIMIT, false, 1);
 }
 
@@ -4540,7 +4443,7 @@ static ssize_t cpu_cross_loading_powerlimit_show(struct device *dev,
 						 char *buf)
 {
 	return show_simple_wmi_attribute(
-		dev, attr, buf, WMI_GUID_LENOVO_GPU_METHOD, 0,
+		dev, attr, buf, WMI_GUID_LENOVO_CPU_METHOD, 0,
 		WMI_METHOD_ID_CPU_GET_CROSS_LOADING_POWERLIMIT, false, 1);
 }
 
@@ -4549,7 +4452,7 @@ static ssize_t cpu_cross_loading_powerlimit_store(struct device *dev,
 						  const char *buf, size_t count)
 {
 	return store_simple_wmi_attribute(
-		dev, attr, buf, count, WMI_GUID_LENOVO_GPU_METHOD, 0,
+		dev, attr, buf, count, WMI_GUID_LENOVO_CPU_METHOD, 0,
 		WMI_METHOD_ID_CPU_SET_CROSS_LOADING_POWERLIMIT, false, 1);
 }
 
@@ -4628,7 +4531,7 @@ static ssize_t gpu_ctgp2_powerlimit_show(struct device *dev,
 
 static DEVICE_ATTR_RO(gpu_ctgp2_powerlimit);
 
-// TOOD: probably remove again because provided by other means; only useful for overclocking
+// TODO: probably remove again because provided by other means; only useful for overclocking
 static ssize_t
 gpu_default_ppab_ctrgp_powerlimit_show(struct device *dev,
 				       struct device_attribute *attr, char *buf)
@@ -4659,7 +4562,7 @@ static ssize_t gpu_temperature_limit_store(struct device *dev,
 
 static DEVICE_ATTR_RW(gpu_temperature_limit);
 
-// TOOD: probably remove again because provided by other means; only useful for overclocking
+// TODO: probably remove again because provided by other means; only useful for overclocking
 static ssize_t gpu_boost_clock_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
@@ -4691,7 +4594,7 @@ static ssize_t fan_fullspeed_store(struct device *dev,
 				   const char *buf, size_t count)
 {
 	struct legion_private *priv = dev_get_drvdata(dev);
-	int state;
+	unsigned int state;
 	int err;
 
 	err = kstrtouint(buf, 0, &state);
@@ -4735,10 +4638,13 @@ static ssize_t powermode_show(struct device *dev, struct device_attribute *attr,
 {
 	struct legion_private *priv = dev_get_drvdata(dev);
 	int power_mode;
+	ssize_t err;
 
 	mutex_lock(&priv->fancurve_mutex);
-	read_powermode(priv, &power_mode);
+	err = read_powermode(priv, &power_mode);
 	mutex_unlock(&priv->fancurve_mutex);
+	if (err)
+		return err;
 	return sysfs_emit(buf, "%d\n", power_mode);
 }
 
@@ -4753,7 +4659,7 @@ static ssize_t powermode_store(struct device *dev,
 			       size_t count)
 {
 	struct legion_private *priv = dev_get_drvdata(dev);
-	int powermode;
+	unsigned int powermode;
 	int err;
 
 	err = kstrtouint(buf, 0, &powermode);
@@ -4766,7 +4672,6 @@ static ssize_t powermode_store(struct device *dev,
 	if (err)
 		return -EINVAL;
 
-	// TODO: better?
 	// we have to wait a bit before change is done in hardware and
 	// readback done after notifying returns correct value, otherwise
 	// the notified reader will read old value
@@ -4829,10 +4734,10 @@ static int legion_sysfs_init(struct legion_private *priv)
 
 static void legion_sysfs_exit(struct legion_private *priv)
 {
-	pr_info("Unloading legion sysfs\n");
+	pr_debug("Unloading legion sysfs\n");
 	device_remove_group(&priv->platform_device->dev,
 			    &legion_attribute_group);
-	pr_info("Unloading legion sysfs done\n");
+	pr_debug("Unloading legion sysfs done\n");
 }
 
 /* =============================  */
@@ -4840,7 +4745,6 @@ static void legion_sysfs_exit(struct legion_private *priv)
 /* ============================   */
 // heavily based on ideapad_laptop.c
 
-// TODO: proper names if meaning of all events is clear
 enum LEGION_WMI_EVENT {
 	LEGION_WMI_EVENT_GAMEZONE = 1,
 	LEGION_EVENT_A,
@@ -4856,11 +4760,6 @@ struct legion_wmi_private {
 	enum LEGION_WMI_EVENT event;
 };
 
-//static void legion_wmi_notify2(u32 value, void *context)
-//    {
-//	pr_info("WMI notify\n" );
-//    }
-
 static void legion_wmi_notify(struct wmi_device *wdev, union acpi_object *data)
 {
 	struct legion_wmi_private *wpriv;
@@ -4868,28 +4767,27 @@ static void legion_wmi_notify(struct wmi_device *wdev, union acpi_object *data)
 
 	mutex_lock(&legion_shared_mutex);
 	priv = legion_shared;
-	if ((!priv) && (priv->loaded)) {
+	if ((!priv) || (!priv->loaded)) {
 		pr_info("Received WMI event while not initialized!\n");
-		goto unlock;
+		mutex_unlock(&legion_shared_mutex);
+		return;
 	}
 
 	wpriv = dev_get_drvdata(&wdev->dev);
 	switch (wpriv->event) {
 	case LEGION_EVENT_A:
-		pr_info("Fan event: legion type: %d;  acpi type: %d (%d=integer)",
+		pr_debug(
+			"Fan event: legion type: %d;  acpi type: %d (%d=integer)",
 			wpriv->event, data->type, ACPI_TYPE_INTEGER);
-		// TODO: here it is too early (first unlock mutext, then wait a bit)
-		//legion_platform_profile_notify();
 		break;
 	default:
-		pr_info("Event: legion type: %d;  acpi type: %d (%d=integer)",
-			wpriv->event, data->type, ACPI_TYPE_INTEGER);
+		pr_debug("Event: legion type: %d;  acpi type: %d (%d=integer)",
+			 wpriv->event, data->type, ACPI_TYPE_INTEGER);
 		break;
 	}
 
-unlock:
 	mutex_unlock(&legion_shared_mutex);
-	// todo; fix that!
+	// TODO: fix that!
 	// problem: we get an event just before the powermode change (from the key?),
 	// so if we notify too early, it will read the old power mode/platform profile
 	msleep(500);
@@ -4971,13 +4869,6 @@ static struct wmi_driver legion_wmi_driver = {
 	.notify = legion_wmi_notify,
 };
 
-//acpi_status status = wmi_install_notify_handler(LEGION_WMI_GAMEZONE_GUID,
-//				legion_wmi_notify2, NULL);
-//if (ACPI_FAILURE(status)) {
-//    return -ENODEV;
-//}
-//return 0;
-
 static int legion_wmi_init(void)
 {
 	return wmi_driver_register(&legion_wmi_driver);
@@ -4985,12 +4876,8 @@ static int legion_wmi_init(void)
 
 static void legion_wmi_exit(void)
 {
-	// TODO: remove this
-	pr_info("Unloading legion WMI\n");
-
-	//wmi_remove_notify_handler(LEGION_WMI_GAMEZONE_GUID);
 	wmi_driver_unregister(&legion_wmi_driver);
-	pr_info("Unloading legion WMI done\n");
+	pr_debug("Unloading legion WMI done\n");
 }
 
 /* =============================  */
@@ -5003,8 +4890,11 @@ static void legion_platform_profile_notify(struct device *dev)
 static void legion_platform_profile_notify(void)
 #endif
 {
-	if (!enable_platformprofile)
-		pr_info("Skipping platform_profile_notify because enable_platformprofile is false\n");
+	if (!enable_platformprofile) {
+		pr_debug(
+			"Skipping platform_profile_notify because enable_platformprofile is false\n");
+		return;
+	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
 	platform_profile_notify(dev);
@@ -5022,6 +4912,7 @@ static int legion_platform_profile_get(struct platform_profile_handler *pprof,
 #endif
 {
 	int powermode;
+	int err;
 	struct legion_private *priv;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
 	priv = dev_get_drvdata(dev);
@@ -5029,7 +4920,9 @@ static int legion_platform_profile_get(struct platform_profile_handler *pprof,
 	priv = container_of(pprof, struct legion_private,
 			    platform_profile_handler);
 #endif
-	read_powermode(priv, &powermode);
+	err = read_powermode(priv, &powermode);
+	if (err)
+		return err;
 
 	switch (powermode) {
 	case LEGION_WMI_POWERMODE_BALANCED:
@@ -5116,11 +5009,13 @@ static int legion_platform_profile_init(struct legion_private *priv)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
 	struct device *dev = &priv->platform_device->dev;
-#endif
+#else
 	int err;
+#endif
 
 	if (!enable_platformprofile) {
-		pr_info("Skipping creating platform profile support because enable_platformprofile is false\n");
+		pr_debug(
+			"Skipping creating platform profile support because enable_platformprofile is false\n");
 		return 0;
 	}
 
@@ -5162,25 +5057,25 @@ static int legion_platform_profile_init(struct legion_private *priv)
 static void legion_platform_profile_exit(struct legion_private *priv)
 {
 	if (!enable_platformprofile) {
-		pr_info("Skipping unloading platform profile support because enable_platformprofile is false\n");
+		pr_debug(
+			"Skipping unloading platform profile support because enable_platformprofile is false\n");
 		return;
 	}
-	pr_info("Unloading legion platform profile\n");
+	pr_debug("Unloading legion platform profile\n");
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 14, 0)
 	platform_profile_remove();
 #endif
-	pr_info("Unloading legion platform profile done\n");
+	pr_debug("Unloading legion platform profile done\n");
 }
 
 /* =============================  */
-/* hwom interface              */
+/* hwmon interface              */
 /* ============================   */
 
 // hw-mon interface
 
 // todo: register_group or register_info?
 
-// TODO: use one common function (like here) or one function per attribute?
 static ssize_t sensor_label_show(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
@@ -5213,10 +5108,9 @@ static ssize_t sensor_label_show(struct device *dev,
 		return -EOPNOTSUPP;
 	}
 
-	return sprintf(buf, label);
+	return sysfs_emit(buf, label);
 }
 
-// TODO: use one common function (like here) or one function per attribute?
 static ssize_t sensor_show(struct device *dev, struct device_attribute *devattr,
 			   char *buf)
 {
@@ -5263,7 +5157,7 @@ static ssize_t sensor_show(struct device *dev, struct device_attribute *devattr,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%d\n", outval);
+	return sysfs_emit(buf, "%d\n", outval);
 }
 
 static SENSOR_DEVICE_ATTR_RO(temp1_input, sensor, SENSOR_CPU_TEMP_ID);
@@ -5298,7 +5192,7 @@ static struct attribute *sensor_hwmon_attributes[] = {
 static ssize_t fan_max_show(struct device *dev,
 			    struct device_attribute *devattr, char *buf)
 {
-	return sprintf(buf, "%d\n", MAX_RPM);
+	return sysfs_emit(buf, "%d\n", MAX_RPM);
 }
 
 static ssize_t autopoint_show(struct device *dev,
@@ -5312,17 +5206,9 @@ static ssize_t autopoint_show(struct device *dev,
 	int point_id = to_sensor_dev_attr_2(devattr)->index;
 	bool ok = true;
 
-	pr_info("%s 1 point id=%d, fancurve_attr_id id=%d, fancurve.fan_speed_unit=%d, fancurve.size=%ld",
-		__func__, point_id, fancurve_attr_id, fancurve.fan_speed_unit,
-		fancurve.size);
-
 	mutex_lock(&priv->fancurve_mutex);
 	err = read_fancurve(priv, &fancurve);
 	mutex_unlock(&priv->fancurve_mutex);
-
-	pr_info("%s 2 point id=%d, fancurve_attr_id id=%d, err=%d, fancurve.fan_speed_unit=%d, fancurve.size=%ld",
-		__func__, point_id, fancurve_attr_id, err,
-		fancurve.fan_speed_unit, fancurve.size);
 
 	if (err) {
 		pr_info("Failed to read fancurve\n");
@@ -5336,16 +5222,10 @@ static ssize_t autopoint_show(struct device *dev,
 
 	switch (fancurve_attr_id) {
 	case FANCURVE_ATTR_PWM1:
-		pr_info("%s ->3a pwm1 point id=%d, fancurve_attr_id id=%d",
-			__func__, point_id, fancurve_attr_id);
 		ok = fancurve_get_speed_pwm(&fancurve, point_id, 0, &value);
-		pr_info("%s ok: %d->3a2", __func__, ok);
 		break;
 	case FANCURVE_ATTR_PWM2:
-		pr_info("%s ->3b pwm2 point id=%d, fancurve_attr_id id=%d",
-			__func__, point_id, fancurve_attr_id);
 		ok = fancurve_get_speed_pwm(&fancurve, point_id, 1, &value);
-		pr_info("%s ok: %d->3b2", __func__, ok);
 		break;
 	case FANCURVE_ATTR_CPU_TEMP:
 		value = fancurve.points[point_id].cpu_max_temp_celsius;
@@ -5379,12 +5259,9 @@ static ssize_t autopoint_show(struct device *dev,
 			fancurve_attr_id);
 		return -EOPNOTSUPP;
 	}
-	if (!ok) {
-		pr_info("%s 4a: error!", __func__);
+	if (!ok)
 		value = 0;
-	}
-	pr_info("%s 4b XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", __func__);
-	return sprintf(buf, "%d\n", value);
+	return sysfs_emit(buf, "%d\n", value);
 }
 
 static ssize_t autopoint_store(struct device *dev,
@@ -5486,7 +5363,7 @@ static ssize_t autopoint_store(struct device *dev,
 error_mutex:
 	mutex_unlock(&priv->fancurve_mutex);
 error:
-	return count;
+	return err;
 }
 
 // pwm1
@@ -5719,11 +5596,11 @@ static ssize_t minifancurve_show(struct device *dev,
 		goto error_unlock;
 	}
 	mutex_unlock(&priv->fancurve_mutex);
-	return sprintf(buf, "%d\n", value);
+	return sysfs_emit(buf, "%d\n", value);
 
 error_unlock:
 	mutex_unlock(&priv->fancurve_mutex);
-	return -1;
+	return -EIO;
 }
 
 static ssize_t minifancurve_store(struct device *dev,
@@ -5736,7 +5613,6 @@ static ssize_t minifancurve_store(struct device *dev,
 
 	err = kstrtoint(buf, 0, &value);
 	if (err) {
-		err = -1;
 		pr_info("Parsing hwmon store failed: error:%d\n", err);
 		goto error;
 	}
@@ -5744,7 +5620,6 @@ static ssize_t minifancurve_store(struct device *dev,
 	mutex_lock(&priv->fancurve_mutex);
 	err = ec_write_minifancurve(&priv->ecram, priv->conf, value);
 	if (err) {
-		err = -1;
 		pr_info("Failed to write minifancurve\n");
 		goto error_unlock;
 	}
@@ -5774,14 +5649,13 @@ static ssize_t pwm1_mode_show(struct device *dev,
 		goto error_unlock;
 	}
 	mutex_unlock(&priv->fancurve_mutex);
-	return sprintf(buf, "%d\n", value ? 0 : 2);
+	return sysfs_emit(buf, "%d\n", value ? 0 : 2);
 
 error_unlock:
 	mutex_unlock(&priv->fancurve_mutex);
-	return -1;
+	return -EIO;
 }
 
-// TODO: remove? or use WMI method?
 static ssize_t pwm1_mode_store(struct device *dev,
 			       struct device_attribute *devattr,
 			       const char *buf, size_t count)
@@ -5793,7 +5667,6 @@ static ssize_t pwm1_mode_store(struct device *dev,
 
 	err = kstrtoint(buf, 0, &value);
 	if (err) {
-		err = -1;
 		pr_info("Parsing hwmon store failed: error:%d\n", err);
 		goto error;
 	}
@@ -5803,7 +5676,6 @@ static ssize_t pwm1_mode_store(struct device *dev,
 	err = ec_write_fanfullspeed(&priv->ecram, priv->conf,
 				    is_maximumfanspeed);
 	if (err) {
-		err = -1;
 		pr_info("Failed to write pwm1_mode/maximumfanspeed\n");
 		goto error_unlock;
 	}
@@ -5959,12 +5831,6 @@ static const struct attribute_group *legion_hwmon_groups[] = {
 
 static ssize_t legion_hwmon_init(struct legion_private *priv)
 {
-	//TODO: use hwmon_device_register_with_groups or
-	// hwmon_device_register_with_info (latter means all hwmon functions have to be
-	// changed)
-	// some laptop driver do it in one way, some in the other
-	// TODO: Use devm_hwmon_device_register_with_groups ?
-	// some laptop drivers use this, some
 	struct device *hwmon_dev = hwmon_device_register_with_groups(
 		&priv->platform_device->dev, "legion_hwmon", priv,
 		legion_hwmon_groups);
@@ -5979,12 +5845,12 @@ static ssize_t legion_hwmon_init(struct legion_private *priv)
 
 static void legion_hwmon_exit(struct legion_private *priv)
 {
-	pr_info("Unloading legion hwon\n");
+	pr_debug("Unloading legion hwmon\n");
 	if (priv->hwmon_dev) {
 		hwmon_device_unregister(priv->hwmon_dev);
 		priv->hwmon_dev = NULL;
 	}
-	pr_info("Unloading legion hwon done\n");
+	pr_debug("Unloading legion hwmon done\n");
 }
 
 /* ACPI*/
@@ -5999,6 +5865,7 @@ static int acpi_init(struct legion_private *priv, struct acpi_device *adev)
 	priv->adev = adev;
 	if (!priv->adev) {
 		dev_info(dev, "Could not get ACPI handle\n");
+		err = -ENODEV;
 		goto err_acpi_init;
 	}
 
@@ -6112,9 +5979,8 @@ static void legion_kbd_bl_exit(struct legion_private *priv)
 static enum led_brightness
 legion_wmi_cdev_brightness_get(struct led_classdev *led_cdev)
 {
-	struct legion_private *priv =
-		container_of(led_cdev, struct legion_private, kbd_bl.led);
 	struct light *light_ins = container_of(led_cdev, struct light, led);
+	struct legion_private *priv = dev_get_drvdata(led_cdev->dev->parent);
 
 	return legion_wmi_light_get(priv, light_ins->light_id,
 				    light_ins->lower_limit,
@@ -6124,9 +5990,8 @@ legion_wmi_cdev_brightness_get(struct led_classdev *led_cdev)
 static int legion_wmi_cdev_brightness_set(struct led_classdev *led_cdev,
 					  enum led_brightness brightness)
 {
-	struct legion_private *priv =
-		container_of(led_cdev, struct legion_private, kbd_bl.led);
 	struct light *light_ins = container_of(led_cdev, struct light, led);
+	struct legion_private *priv = dev_get_drvdata(led_cdev->dev->parent);
 
 	return legion_wmi_light_set(priv, light_ins->light_id,
 				    light_ins->lower_limit,
@@ -6218,21 +6083,14 @@ static int legion_add(struct platform_device *pdev)
 		dmi_get_system_info(DMI_PRODUCT_NAME),
 		dmi_get_system_info(DMI_BIOS_VERSION));
 
-	// TODO: allocate?
 	priv = &_priv;
 	priv->platform_device = pdev;
 	err = legion_shared_init(priv);
 	if (err) {
-		dev_info(&pdev->dev, "legion_laptop is forced to load.\n");
+		dev_info(&pdev->dev, "legion_shared_init failed: %d\n", err);
 		goto err_legion_shared_init;
 	}
 	dev_set_drvdata(&pdev->dev, priv);
-
-	// TODO: remove
-	pr_info("Read identifying information: DMI_SYS_VENDOR: %s; DMI_PRODUCT_NAME: %s; DMI_BIOS_VERSION:%s\n",
-		dmi_get_system_info(DMI_SYS_VENDOR),
-		dmi_get_system_info(DMI_PRODUCT_NAME),
-		dmi_get_system_info(DMI_BIOS_VERSION));
 
 	dmi_sys = dmi_first_match(optimistic_allowlist);
 	is_allowed = dmi_sys != NULL;
@@ -6249,8 +6107,8 @@ static int legion_add(struct platform_device *pdev)
 		dev_info(
 			&pdev->dev,
 			"Module not usable for this laptop because it is not in allowlist. Notify the maintainer if you want to add your device or force load with param force.\n");
-		err = -ENOMEM;
-		goto err_model_mismtach;
+		err = -ENODEV;
+		goto err_model_mismatch;
 	}
 
 	if (force)
@@ -6276,7 +6134,6 @@ static int legion_add(struct platform_device *pdev)
 		goto err_acpi_init;
 	}
 
-	// TODO: remove; only used for reverse engineering
 	pr_info("Creating RAM access to embedded controller\n");
 	err = ecram_memoryio_init(&priv->ec_memoryio,
 				  priv->conf->ramio_physical_start, 0,
@@ -6304,7 +6161,7 @@ static int legion_add(struct platform_device *pdev)
 	is_ec_id_valid = skip_ec_id_check ||
 			 (ec_read_id == priv->conf->embedded_controller_id);
 	if (!is_ec_id_valid) {
-		err = -ENOMEM;
+		err = -ENODEV;
 		dev_info(&pdev->dev, "Expected EC chip id 0x%x but read 0x%x\n",
 			 priv->conf->embedded_controller_id, ec_read_id);
 		goto err_ecram_id;
@@ -6348,7 +6205,6 @@ static int legion_add(struct platform_device *pdev)
 		goto err_wmi;
 	}
 
-	pr_info("Init keyboard backlight LED driver\n");
 	err = legion_kbd_bl_init(priv);
 	if (err) {
 		dev_info(
@@ -6356,7 +6212,6 @@ static int legion_add(struct platform_device *pdev)
 			"Failed to init keyboard backlight LED driver. Skipping ...\n");
 	}
 
-	pr_info("Init Y-Logo LED driver\n");
 	err = legion_light_init(priv, &priv->ylogo_light, LIGHT_ID_YLOGO, 0, 1,
 				"platform::ylogo");
 	if (err) {
@@ -6364,7 +6219,6 @@ static int legion_add(struct platform_device *pdev)
 			 "Failed to init Y-Logo LED driver. Skipping ...\n");
 	}
 
-	pr_info("Init IO-Port LED driver\n");
 	err = legion_light_init(priv, &priv->iport_light, LIGHT_ID_IOPORT, 1, 2,
 				"platform::ioport");
 	if (err) {
@@ -6375,11 +6229,6 @@ static int legion_add(struct platform_device *pdev)
 	dev_info(&pdev->dev, "legion_laptop loaded for this device\n");
 	return 0;
 
-	// TODO: remove eventually
-	legion_light_exit(priv, &priv->iport_light);
-	legion_light_exit(priv, &priv->ylogo_light);
-	legion_kbd_bl_exit(priv);
-	legion_wmi_exit();
 err_wmi:
 	legion_platform_profile_exit(priv);
 err_platform_profile:
@@ -6396,7 +6245,7 @@ err_ecram_memoryio_init:
 err_acpi_init:
 	legion_shared_exit(priv);
 err_legion_shared_init:
-err_model_mismtach:
+err_model_mismatch:
 	dev_info(&pdev->dev, "legion_laptop not loaded for this device\n");
 	return err;
 }

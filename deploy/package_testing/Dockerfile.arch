@@ -2,8 +2,6 @@ ARG BASE_IMAGE=archlinux:latest
 FROM $BASE_IMAGE
 RUN pacman -Syu --noconfirm
 
-ARG DEBIAN_FRONTEND=noninteractive
-
 # Install sudo (used in scripts that are tested)
 RUN pacman -Sy --noconfirm sudo 
 

@@ -14,7 +14,7 @@ python3 -m build --wheel --no-isolation
 
 if [ "$EUID" -ne 0 ]; then
 	echo "Please run as root to install"
-	exit
+	exit 1
 else
 	python3 -m installer --destdir="/" dist/*.whl
 	#Create config folder (not overwrite old folder)

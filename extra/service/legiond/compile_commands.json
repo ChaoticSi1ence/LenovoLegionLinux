@@ -9,9 +9,9 @@
       "modules/output.o",
       "modules/output.c"
     ],
-    "directory": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond",
-    "file": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/modules/output.c",
-    "output": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/modules/output.o"
+    "directory": ".",
+    "file": "./modules/output.c",
+    "output": "./modules/output.o"
   },
   {
     "arguments": [
@@ -23,9 +23,9 @@
       "modules/parseconf.o",
       "modules/parseconf.c"
     ],
-    "directory": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond",
-    "file": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/modules/parseconf.c",
-    "output": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/modules/parseconf.o"
+    "directory": ".",
+    "file": "./modules/parseconf.c",
+    "output": "./modules/parseconf.o"
   },
   {
     "arguments": [
@@ -37,9 +37,9 @@
       "modules/powerstate.o",
       "modules/powerstate.c"
     ],
-    "directory": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond",
-    "file": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/modules/powerstate.c",
-    "output": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/modules/powerstate.o"
+    "directory": ".",
+    "file": "./modules/powerstate.c",
+    "output": "./modules/powerstate.o"
   },
   {
     "arguments": [
@@ -51,9 +51,9 @@
       "modules/setapply.o",
       "modules/setapply.c"
     ],
-    "directory": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond",
-    "file": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/modules/setapply.c",
-    "output": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/modules/setapply.o"
+    "directory": ".",
+    "file": "./modules/setapply.c",
+    "output": "./modules/setapply.o"
   },
   {
     "arguments": [
@@ -65,9 +65,9 @@
       "legiond.o",
       "legiond.c"
     ],
-    "directory": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond",
-    "file": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/legiond.c",
-    "output": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/legiond.o"
+    "directory": ".",
+    "file": "./legiond.c",
+    "output": "./legiond.o"
   },
   {
     "arguments": [
@@ -79,8 +79,8 @@
       "legiond-ctl.o",
       "legiond-ctl.c"
     ],
-    "directory": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond",
-    "file": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/legiond-ctl.c",
-    "output": "/home/ston/Workspaces/LenovoLegionLinux/extra/service/legiond/legiond-ctl.o"
+    "directory": ".",
+    "file": "./legiond-ctl.c",
+    "output": "./legiond-ctl.o"
   }
 ]

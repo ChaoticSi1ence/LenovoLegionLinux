@@ -6,8 +6,8 @@ import argparse
 import logging
 import sys
 import os
-# Make it possible to run without installationimport
-# pylint: disable=# pylint: disable=wrong-import-position
+# Make it possible to run without installation
+# pylint: disable=wrong-import-position
 sys.path.insert(0, os.path.dirname(__file__) + "/..")
 import legion_linux.legion
 from legion_linux.legion import LegionModelFacade
@@ -88,15 +88,15 @@ class MiniFancurveFeatureCommand(CLIFeatureCommand):
         return self.model.fancurve_io.exists()
 
     def command_status(self, **_) -> int:
-        print(self.model.fancurve_io.get_minifancuve())
+        print(self.model.fancurve_io.get_minifancurve())
         return 0
 
     def command_enable(self, **_) -> int:
-        self.model.fancurve_io.set_minifancuve(True)
+        self.model.fancurve_io.set_minifancurve(True)
         return 0
 
     def command_disable(self, **_) -> int:
-        self.model.fancurve_io.set_minifancuve(False)
+        self.model.fancurve_io.set_minifancurve(False)
         return 0
 
 
@@ -301,6 +301,7 @@ def autocomplete_install(_, **__) -> int:
     cmd = f"eval \"$(register-python-argcomplete {__file__})\""
     print("PLEASE RUN THE COMMAND:")
     print(cmd)
+    return 0
 
 
 def fancurve_write_preset_to_hw(legion: LegionModelFacade, presetname: str, **_) -> int:
@@ -338,7 +339,7 @@ def fancurve_write_preset_for_current_profile(legion: LegionModelFacade, **_) ->
 
 
 def conservation_apply_mode_for_current_battery_capacity(legion: LegionModelFacade,
-                                                         lowerlimit=50, upperlimit=60, **_) -> int:
+                                                         lowerlimit=60, upperlimit=80, **_) -> int:
     print(legion.conservation_apply_mode_for_current_battery_capacity(
         lowerlimit, upperlimit))
     return 0
@@ -359,7 +360,7 @@ def set_feature(legion: LegionModelFacade, name, values, **_) -> int:
         print(feat)
     return -2
 
-def create_argparser()->argparse.ArgumentParser:
+def create_argparser():
     parser = argparse.ArgumentParser(description='Legion CLI')
     parser.add_argument(
         '--donotexpecthwmon', action='store_true', help='Do not check hwmon dir when not needed', default=False)
@@ -400,25 +401,26 @@ def create_argparser()->argparse.ArgumentParser:
         'filename', type=str, help='Name of the file')
     hw_to_file_parser.set_defaults(func=fancurve_write_hw_to_file)
 
-    hw_to_file_parser = subcommands.add_parser(
+    current_preset_parser = subcommands.add_parser(
         'fancurve-write-current-preset-to-hw',
         help='Write fan curve for the current profile (power mode, power supply status) to hardware')
-    hw_to_file_parser.set_defaults(
+    current_preset_parser.set_defaults(
         func=fancurve_write_preset_for_current_profile)
 
     custom_conservation_mode = subcommands.add_parser(
         'custom-conservation-mode-apply', help='Turn conservation mode on or off depending on battery level')
     custom_conservation_mode.add_argument(
-        'lowerlimit', type=int, help='Limit when conservation mode should be turned off, e.g. 60', default=61)
+        'lowerlimit', type=int, nargs='?',
+        help='Limit when conservation mode should be turned off, e.g. 60', default=60)
     custom_conservation_mode.add_argument(
-        'upperlimit', type=int, help='Limit when conservation mode should be turned on, e.g. 80', default=81)
+        'upperlimit', type=int, nargs='?', help='Limit when conservation mode should be turned on, e.g. 80', default=80)
     custom_conservation_mode.set_defaults(
         func=conservation_apply_mode_for_current_battery_capacity)
 
     monitor_cmd = subcommands.add_parser(
         'monitor', help='Run monitors with notifications')
     monitor_cmd.add_argument(
-        'period', type=int, help='Monitoring period in seconds', default=60)
+        'period', type=int, nargs='?', help='Monitoring period in seconds', default=60)
     monitor_cmd.set_defaults(
         func=monitor)
 

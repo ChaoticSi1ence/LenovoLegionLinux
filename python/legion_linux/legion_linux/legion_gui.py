@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QWidget, QLab
     QVBoxLayout, QGridLayout, QLineEdit, QPushButton, QComboBox, QGroupBox, \
     QCheckBox, QSystemTrayIcon, QMenu, QScrollArea, QMessageBox, QSpinBox, QTextBrowser, QHBoxLayout, QFileDialog
 # Make it possible to run without installation
-# pylint: disable=# pylint: disable=wrong-import-position
+# pylint: disable=wrong-import-position
 sys.path.insert(0, os.path.dirname(__file__) + "/..")
 import legion_linux.legion
 from legion_linux.legion import LegionModelFacade, FanCurve, FanCurveEntry, FileFeature, \
@@ -41,18 +41,20 @@ def get_color_mode():
 
 # pylint: disable=too-few-public-methods
 class QtLogHandler(QtCore.QObject):
-    logBuffer = []
     logWritten = QtCore.pyqtSignal(str)
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.log_buffer = []
+
     def emit(self, msg):
-        self.logBuffer.append(msg)
+        self.log_buffer.append(msg)
         if self.receivers(self.logWritten) > 0:
-            while self.logBuffer:
-                self.logWritten.emit(self.logBuffer.pop(0))
+            while self.log_buffer:
+                self.logWritten.emit(self.log_buffer.pop(0))
 
 
 class QtHandler(logging.Handler):
-    logWritten = QtCore.pyqtSignal(str)
 
     def __init__(self, level=0) -> None:
         super().__init__(level)
@@ -185,11 +187,15 @@ class EnumFeatureController:
         except Exception as ex:
             mark_error_combobox(self.widget)
             log_error(ex)
+        QApplication.processEvents()
         time.sleep(0.200)
+        QApplication.processEvents()
         self.update_view_from_feature()
 
         if self.dependent_controllers:
+            QApplication.processEvents()
             time.sleep(self.check_after_set_time)
+            QApplication.processEvents()
             for contr in self.dependent_controllers:
                 contr.update_view_from_feature()
 
@@ -244,7 +250,9 @@ class BoolFeatureController:
             if self.feature.exists():
                 gui_value = self.checkbox.isChecked()
                 self.feature.set(gui_value)
+                QApplication.processEvents()
                 time.sleep(0.100)
+                QApplication.processEvents()
                 feature_value = self.feature.get()
                 self.checkbox.setChecked(feature_value)
                 self.checkbox.setDisabled(False)
@@ -295,7 +303,9 @@ class BoolFeatureTrayController:
             if self.feature.exists():
                 gui_value = self.action.isChecked()
                 self.feature.set(gui_value)
+                QApplication.processEvents()
                 time.sleep(0.100)
+                QApplication.processEvents()
                 hw_value = self.feature.get()
                 self.action.setChecked(hw_value)
                 self.action.setDisabled(False)
@@ -307,7 +317,9 @@ class BoolFeatureTrayController:
         except Exception as ex:
             log_error(ex)
         if self.dependent_controllers:
+            QApplication.processEvents()
             time.sleep(0.100)
+            QApplication.processEvents()
             for contr in self.dependent_controllers:
                 contr.update_view_from_feature()
 
@@ -393,16 +405,9 @@ class EnumFeatureTrayController:
                         # there are more actions than values, so hide it
                         action.setVisible(False)
             else:
-                for i, action in enumerate(self.actions):
-                    if i< len(values):
-                        value, name = values[i]
-                        action.setText(f"Set {name}")
-                        action.setCheckable(True)
-                        action.setChecked(False)
-                        action.setDisabled(True)
-                    else:
-                        # there are more actions than values, so hide it
-                        action.setVisible(False)
+                for action in self.actions:
+                    action.setVisible(False)
+                    action.setDisabled(True)
         # pylint: disable=broad-except
         except Exception as ex:
             log_error(ex)
@@ -415,11 +420,15 @@ class EnumFeatureTrayController:
         # pylint: disable=broad-except
         except Exception as ex:
             log_error(ex)
+        QApplication.processEvents()
         time.sleep(0.200)
+        QApplication.processEvents()
         log.info("Update view after setting inEnumFeatureTrayController ")
         self.update_view_from_feature()
         if self.dependent_controllers:
+            QApplication.processEvents()
             time.sleep(0.100)
+            QApplication.processEvents()
             for contr in self.dependent_controllers:
                 log.info("Update dependent view %s in EnumFeatureTrayController", str(contr))
                 contr.update_view_from_feature()
@@ -434,7 +443,7 @@ class IntFeatureController:
     widget: QSpinBox
     feature: IntFileFeature
 
-    def __init__(self, widget: QComboBox, feature: FileFeature, update_on_change=False):
+    def __init__(self, widget: QSpinBox, feature: IntFileFeature, update_on_change=False):
         self.widget = widget
         self.feature = feature
         if update_on_change:
@@ -455,7 +464,7 @@ class IntFeatureController:
                     self.feature.set(gui_value)
                 else:
                     print(
-                        f"Value for gui_value {gui_value} not ignored with limits {low} and {upper}")
+                        f"Value {gui_value} out of range [{low}, {upper}], ignoring")
             else:
                 self.widget.setDisabled(True)
         # pylint: disable=broad-except
@@ -493,7 +502,7 @@ class IntFeatureController:
 
 class HybridGsyncController:
     gsynchybrid_feature: GsyncFeature
-    target_value: Optional[dict]
+    target_value: Optional[bool]
 
     def __init__(self, gsynchybrid_feature: GsyncFeature,
                  current_state_label: QLabel,
@@ -1224,6 +1233,8 @@ class OtherOptionsTab(QWidget):
                 QMessageBox.critical(self, "Error", f"Enable failed: {e}")
                 self.bootlogo_checkbox.setChecked(False)
             self.update_bootlogo_view()
+        else:
+            self.update_bootlogo_view()
 
     def init_power_ui(self):
         # pylint: disable=too-many-statements
@@ -1533,7 +1544,7 @@ class MainWindow(QMainWindow):
         msgs = [
             'Show your appreciation for this tool by giving a star on github <a href="https://github.com/johnfanv2/LenovoLegionLinux" >https://github.com/johnfanv2/LenovoLegionLinux</a>',
             'Help by giving a star to the github repository <a href="https://github.com/johnfanv2/LenovoLegionLinux" >https://github.com/johnfanv2/LenovoLegionLinux</a>',
-            'Please give a star on github to support. My goal is to merge the driver into the main Linux kernel,<br> so no recompilation is required after a Linux update <a href="https://github.com/johnfanv2/LenovoLegionLinux" >https://github.com/johnfanv2/LenovoLegionLinux</a'
+            'Please give a star on github to support. My goal is to merge the driver into the main Linux kernel,<br> so no recompilation is required after a Linux update <a href="https://github.com/johnfanv2/LenovoLegionLinux" >https://github.com/johnfanv2/LenovoLegionLinux</a>',
             'Please give star on github the repository if this is useful or might be useful in the future <a href="https://github.com/johnfanv2/LenovoLegionLinux" >https://github.com/johnfanv2/LenovoLegionLinux</a>',
             'Please give a star on github to show that this it useful to me and the Linux community,<br> so hopefully the driver can be merged to the Linux kernel <a href="https://github.com/johnfanv2/LenovoLegionLinux" >https://github.com/johnfanv2/LenovoLegionLinux</a>'
         ]
@@ -1653,7 +1664,7 @@ class LegionTray:
         self.tray.show()
 
 
-def get_ressource_path(name):
+def get_resource_path(name):
     path = os.path.join(
         os.path.dirname(os.path.realpath(__file__)), name)
     return path
@@ -1691,13 +1702,13 @@ def get_icon_path(controller):
     log.info("Using icon_color %s", icon_color)
     if icon_color == 'dark':
         log.info("Using icon legion_logo_dark")
-        icon_path = get_ressource_path('legion_logo_dark.png')
+        icon_path = get_resource_path('legion_logo_dark.png')
     elif icon_color == 'light':
         log.info("Using icon legion_logo_light")
-        icon_path = get_ressource_path('legion_logo_light.png')
+        icon_path = get_resource_path('legion_logo_light.png')
     else:
         log.info("Using icon legion_logo")
-        icon_path = get_ressource_path('legion_logo.png')
+        icon_path = get_resource_path('legion_logo.png')
     return icon_path
 
 def main():

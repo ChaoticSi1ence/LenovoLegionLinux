@@ -20,7 +20,7 @@ BuildRequires:  gcc
 BuildRequires:  inih-devel
 BuildRequires:  systemd-rpm-macros
 Vendor: johnfan <johnfan@example.org>
-Packager: Gonçalo Negrier Duarte <gonegrier.duarte@gamil.com>
+Packager: Gonçalo Negrier Duarte <gonegrier.duarte@gmail.com>
 Url: https://github.com/johnfanv2/LenovoLegionLinux
 
 Requires:     PyQt6
@@ -29,7 +29,7 @@ Requires:     python-argcomplete
 Requires:     python-darkdetect
 
 %description
-See documenation of LenovoLegionLinux
+See documentation of LenovoLegionLinux
 
 %prep
 %autosetup -p1 -n %{srcname}-%{version}
@@ -49,8 +49,8 @@ make
 mkdir -p %{buildroot}%{_unitdir}
 install -D -m 0644 %{_builddir}/%{srcname}-%{version}/python/legion_linux/legion_linux/extra/service/legiond.service %{buildroot}%{_unitdir}/legiond.service
 install -D -m 0644 %{_builddir}/%{srcname}-%{version}/python/legion_linux/legion_linux/extra/service/legiond-onresume.service %{buildroot}%{_unitdir}/legiond-onresume.service
-install -D -m 0644 %{_builddir}/%{srcname}-%{version}/python/legion_linux/legion_linux/extra/service/legiond.service %{buildroot}%{_unitdir}/legiond-cpuset.service
-install -D -m 0644 %{_builddir}/%{srcname}-%{version}/python/legion_linux/legion_linux/extra/service/legiond.service %{buildroot}%{_unitdir}/legiond-cpuset.timer
+install -D -m 0644 %{_builddir}/%{srcname}-%{version}/python/legion_linux/legion_linux/extra/service/legiond-cpuset.service %{buildroot}%{_unitdir}/legiond-cpuset.service
+install -D -m 0644 %{_builddir}/%{srcname}-%{version}/python/legion_linux/legion_linux/extra/service/legiond-cpuset.timer %{buildroot}%{_unitdir}/legiond-cpuset.timer
 
 mkdir -p %{buildroot}%{_bindir}
 install -D -m 0755 %{_builddir}/%{srcname}-%{version}/python/legion_linux/legion_linux/extra/service/legiond/legiond-ctl %{buildroot}%{_bindir}/legiond-ctl
@@ -91,12 +91,12 @@ rm -rf %{buildroot}/usr/lib/debug
 %exclude /usr/lib/debug
 
 %post
-echo "If first install, copy /usr/share/legion_linux folder to /etc/legion_linux.\n"
+echo "If first install, copy /usr/share/legion_linux folder to /etc/legion_linux."
 echo "Command: sudo cp -r /usr/share/legion_linux /etc/legion_linux"
 
 %preun
-echo "After uninstall you can remover /etc/legion_linux to get rid of the configuration file!"
+echo "After uninstall you can remove /etc/legion_linux to get rid of the configuration file!"
 
 %changelog
-* Mon Apr 8 2024 Gonçalo Negrier Duarte <gonegrier.duarte@gmail.com> - 0.0.15
+* Mon Apr 08 2024 Gonçalo Negrier Duarte <gonegrier.duarte@gmail.com> - 0.0.15
 - Various fix to the gui and migrate to legiond daemon

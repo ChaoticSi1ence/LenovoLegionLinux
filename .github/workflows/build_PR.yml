@@ -46,7 +46,8 @@ jobs:
       run: ./deploy/dependencies/install_dependencies_ubuntu_24_04.sh
       shell: bash
     - name: Build
-      run: ./tests/test_kenel_dkms_install.sh || true
+      run: ./tests/test_kernel_dkms_install.sh
+      continue-on-error: true
       shell: bash
 
   run-tests:
@@ -70,10 +71,10 @@ jobs:
         if: always()
         run: ./tests/test_python_cli.sh
         shell: bash
-          #- name: Test python GUI
-          #if: always()
-          #run: ./tests/test_python_gui.sh
-          #shell: bash
+      #- name: Test python GUI
+      #  if: always()
+      #  run: ./tests/test_python_gui.sh
+      #  shell: bash
       - name: Install python package
         if: always()
         run: ./deploy/python_install_pip_pkg.sh
@@ -101,7 +102,7 @@ jobs:
       with:
         fetch-depth: 0
     - name: Build kernel patch
-      if: steps.check-kernel-module-change.workflows == 'true'
+      if: needs.check-kernel-module-change.outputs.output1 == 'true'
       run: ./deploy/build_kernelpatch.sh
       shell: bash
 

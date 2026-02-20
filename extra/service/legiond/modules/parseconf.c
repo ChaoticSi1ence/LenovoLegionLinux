@@ -51,13 +51,18 @@ static int handler(void *user, const char *section, const char *name,
 		ptr_cmd = &pconfig->cpu_ac_bp;
 	} else if (MATCH("cpu_control", "ac_p")) {
 		ptr_cmd = &pconfig->cpu_ac_p;
+	} else if (MATCH("cpu_control", "bat_p")) {
+		ptr_cmd = &pconfig->cpu_bat_p;
+	} else if (MATCH("gpu_control", "tdp_bat_p")) {
+		ptr_cmd = &pconfig->gpu_tdp_bat_p;
 	} else {
 		// unknown section
 		return 0;
 	}
 
 	if (ptr_cmd) {
-		strcpy((char *)ptr_cmd, value);
+		strncpy((char *)ptr_cmd, value, sizeof(command) - 1);
+		((char *)ptr_cmd)[sizeof(command) - 1] = '\0';
 	}
 	return 1;
 }

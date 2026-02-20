@@ -4,7 +4,7 @@ import glob
 from dataclasses import asdict, dataclass
 import shutil
 import time
-from typing import Callable, List, Optional, Tuple, Dict
+from typing import Any, Callable, List, Optional, Tuple, Dict
 from pathlib import Path
 import logging
 import subprocess
@@ -14,8 +14,6 @@ import struct
 import zlib
 from datetime import datetime
 from PIL import Image
-# import jsonrpyc
-# import inotify.adapters
 
 
 log = logging.getLogger(__name__)
@@ -141,9 +139,6 @@ def write_file_with_legion_cli(name, values):
         log.error(get_dmesg(only_tail=True, filter_log=False))
         raise err
 
-# def write_file_with_legion_cli_rpc(name, value):
-
-
 class Feature:
     features: List['FileFeature'] = []
     default_use_legion_cli_to_write: bool = False
@@ -164,7 +159,7 @@ class Feature:
     def name(self):
         return type(self).__name__
 
-    def add_callback(self, callback:Callable[[any], None]):
+    def add_callback(self, callback:Callable[[Any], None]):
         self.callbacks.append(callback)
 
     def _notify(self):
@@ -238,7 +233,7 @@ class EnumSettingFeature(Feature):
             log.error("Setting invalid value %s", value)
             raise ValueError(f"Invalid value {value}")
 
-    def get(self) -> bool:
+    def get(self) -> str:
         return self.value
 
 
@@ -345,9 +340,9 @@ class LegionGUIAutostart(BoolFileFeature):
     def __init__(self):
         self.autostart_dekstop_folder_path = Path.home() / ".config" / "autostart"
         self.desktop_file_path = Path(
-            '/usr/share/applications') / 'legion_gui_user.desktop'
+            '/usr/share/applications') / 'legion_gui.desktop'
         self.autostart_desktop_file_path = self.autostart_dekstop_folder_path / \
-            "legion_gui_user.desktop"
+            "legion_gui.desktop"
         super().__init__(str(Path.home() / ".config"))
 
     def exists(self):
@@ -436,7 +431,8 @@ class BatteryConservation(BoolFileFeature):
     def set_if_not_set(self, value: bool) -> None:
         if value is not self.get():
             self.set(value)
-        print(f"Already has value {value} - skip setting again.")
+        else:
+            print(f"Already has value {value} - skip setting again.")
 
 
 class RapidChargingFeature(BoolFileFeature):
@@ -489,9 +485,6 @@ class AlwaysOnUSBChargingFeature(BoolFileFeature):
 
     def __init__(self):
         super().__init__(os.path.join(IDEAPAD_SYS_BASEPATH, 'usb_charging'))
-
-    def set(self, value: str):
-        raise NotImplementedError()
 
 
 class MaximumFanSpeedFeature(BoolFileFeature):
@@ -590,6 +583,12 @@ class CPUDefaultPowerLimit(IntFileFeature):
     def __init__(self):
         super().__init__(os.path.join(LEGION_SYS_BASEPATH, "cpu_default_powerlimit"), 0, 100, 1)
 
+    def set(self, _):
+        log.warning('cpu_default_powerlimit is read-only')
+
+    def set_str_value(self, _):
+        log.warning('cpu_default_powerlimit is read-only')
+
 
 class CPUCrossLoadingPowerLimit(IntFileFeature):
     def __init__(self):
@@ -600,6 +599,12 @@ class CPUCrossLoadingPowerLimit(IntFileFeature):
 class GPUBoostClock(IntFileFeature):
     def __init__(self):
         super().__init__(os.path.join(LEGION_SYS_BASEPATH, "gpu_boost_clock"), 0, 10000, 1)
+
+    def set(self, _):
+        log.warning('gpu_boost_clock is read-only')
+
+    def set_str_value(self, _):
+        log.warning('gpu_boost_clock is read-only')
 
 
 class GPUCTGPPowerLimit(IntFileFeature):
@@ -816,10 +821,18 @@ class FanCurveIO(Feature):
         self._write_file(file_path, value)
 
     def set_fan_1_speed_rpm(self, point_id, value):
-        return self.set_fan_1_speed_pwm(point_id, round(value/self.get_fan_1_max_rpm()*255.0))
+        max_rpm = self.get_fan_1_max_rpm()
+        if max_rpm == 0:
+            log.warning("Fan 1 max RPM is 0, cannot convert RPM to PWM")
+            return None
+        return self.set_fan_1_speed_pwm(point_id, round(value / max_rpm * 255.0))
 
     def set_fan_2_speed_rpm(self, point_id, value):
-        return self.set_fan_2_speed_pwm(point_id, round(value/self.get_fan_2_max_rpm()*255.0))
+        max_rpm = self.get_fan_2_max_rpm()
+        if max_rpm == 0:
+            log.warning("Fan 2 max RPM is 0, cannot convert RPM to PWM")
+            return None
+        return self.set_fan_2_speed_pwm(point_id, round(value / max_rpm * 255.0))
 
     def set_lower_cpu_temperature(self, point_id, value):
         point_id = self._validate_point_id(point_id)
@@ -920,13 +933,13 @@ class FanCurveIO(Feature):
     def has_minifancurve(self):
         return self.exists() and self.hwmon_path is not None and os.path.exists(self.hwmon_path + self.minifancurve)
 
-    def set_minifancuve(self, value):
+    def set_minifancurve(self, value):
         log.info("Setting minifancurve to: %s", str(value))
         file_path = self.hwmon_path + self.minifancurve
         outvalue = 1 if value else 0
         return self._write_file_or(file_path, outvalue)
 
-    def get_minifancuve(self):
+    def get_minifancurve(self):
         file_path = self.hwmon_path + self.minifancurve
         invalue = self._read_file_or(file_path, False)
         return invalue != 0
@@ -943,9 +956,9 @@ class FanCurveIO(Feature):
         try:
             log.info(
                 "Trying to set minifancurve using fancurve profile to: %s", str(fan_curve.enable_minifancurve))
-            self.set_minifancuve(fan_curve.enable_minifancurve)
+            self.set_minifancurve(fan_curve.enable_minifancurve)
         # pylint: disable=broad-except
-        except BaseException as error:
+        except Exception as error:
             log.error(str(error))
         for index, entry in enumerate(fan_curve.entries):
             point_id = index + 1
@@ -982,9 +995,9 @@ class FanCurveIO(Feature):
             entries.append(entry)
         fancurve = FanCurve(name='unknown', entries=entries)
         try:
-            fancurve.enable_minifancurve = self.get_minifancuve()
+            fancurve.enable_minifancurve = self.get_minifancurve()
         # pylint: disable=broad-except
-        except BaseException as error:
+        except Exception as error:
             log.error(str(error))
         return fancurve
 
@@ -1055,7 +1068,7 @@ class SettingsManager(Feature):
 
     def apply_settings(self, preset: Settings):
         for name, value in preset.setting_entries.items():
-            log.error("Try seting %s from preset to %s", name, value)
+            log.info("Try setting %s from preset to %s", name, value)
             has_set = Feature.set_feature_to_value(name, value)
             if not has_set:
                 log.error("Cannot set %s from preset to %s", name, value)
@@ -1313,72 +1326,40 @@ class NVIDIAGPUOnQuietMode(Monitor):
 
         return [diag]
 
-# class INotifyMonitor:
-
-#     def __init__(self):
-#         self.monitors = []
-#         self.monitors_by_featurefilename = {}
-#         self.inot = inotify.adapters.Inotify()
 
 
-#     def add_monitor(self, monitor:Monitor):
-#         for file_feature in monitor.get_inputs():
-#             filename = file_feature.filename
-#             if filename:
-#                 self.inot.add_watch(filename.encode())
-#                 if filename in self.monitors_by_featurefilename:
-#                     self.monitors_by_featurefilename[filename].append(monitor)
-#                 else:
-#                     self.monitors_by_featurefilename[filename] = [monitor]
-#                 self.monitors.append(monitor)
 
-#     def get_monitors_for_filename(self, filename):
-#         return self.monitors_by_featurefilename.get(filename, [])
-
-#     def run(self):
-#         monitors_to_notify : List[Monitor] = []
-#         for event in self.inot.event_gen(yield_nones=True):
-#             # collect all monitors that should be notified
-#             if event:
-#                 header, type_names, path, filename = event
-#                 print(event)
-#                 for m in self.get_monitors_for_filename():
-#                     if m not in monitors_to_notify:
-#                         monitors_to_notify.append(m)
-#             # call each monitor that should be notified once
-#             # for this timestep
-#             if event is None:
-#                 for m in monitors_to_notify:
-#                     m.run()
-#                 monitors_to_notify = []
-
-
-class NotifcationSender:
+class NotificationSender:
     disable_notifications: bool
 
     def __init__(self):
         self.disable_notifications = False
 
     def notify(self, title, msg):
+        if self.disable_notifications:
+            return None
         return self._send_notification(title, msg)
 
     def _send_notification(self, title, msg):
         raise NotImplementedError()
 
 
-class SystemNotificationSender(NotifcationSender):
+class SystemNotificationSender(NotificationSender):
 
     def _send_notification(self, _, msg):
         if is_root_user():
+            sudo_user = os.environ.get('SUDO_USER')
+            if not sudo_user:
+                log.warning("Running as root without SUDO_USER; cannot send notification")
+                return None
             # Drop root privileges so we can send notifications
-            # TODOs: find a better way
             # Code by user dvilela on stackoverflow
             # https://stackoverflow.com/a/54718205
-            user_id = subprocess.run(['id', '-u', os.environ['SUDO_USER']],
+            user_id = subprocess.run(['id', '-u', sudo_user],
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
                             check=True).stdout.decode("utf-8").replace('\n', '')
-            subprocess.run(['sudo', '-u', os.environ['SUDO_USER'],
+            subprocess.run(['sudo', '-u', sudo_user,
                             f'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{user_id}/bus',
                             'notify-send', '-i', 'utilities-terminal', msg, msg],
                             stdout=subprocess.PIPE,
@@ -1387,6 +1368,7 @@ class SystemNotificationSender(NotifcationSender):
         else:
             with subprocess.Popen(['notify-send', msg]) as _:
                 pass
+        return None
 
 
 class LegionModelFacade:
@@ -1394,6 +1376,7 @@ class LegionModelFacade:
 
     # pylint: disable=too-many-statements
     def __init__(self, expect_hwmon=True, use_legion_cli_to_write=False, config_dir=DEFAULT_CONFIG_DIR):
+        Feature.features.clear()
         Feature.default_use_legion_cli_to_write = use_legion_cli_to_write
         log.info(get_dmesg())
         self.fancurve_io = FanCurveIO(expect_hwmon=expect_hwmon)

@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 
-void pretty(char *msg)
+void pretty(const char *msg)
 {
 	int len = strlen(msg);
 	len = len > 30 ? len : 30;

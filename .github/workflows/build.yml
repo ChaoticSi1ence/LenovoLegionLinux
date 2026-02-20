@@ -16,7 +16,7 @@ on:
     branches: [ main, develop ]
 jobs:
   build:
-    runs-on: ubuntu:24.04
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -57,7 +57,8 @@ jobs:
       run: ./deploy/dependencies/install_dependencies_ubuntu_24_04.sh
       shell: bash
     - name: Build
-      run: ./tests/test_kenel_dkms_install.sh || true
+      run: ./tests/test_kernel_dkms_install.sh
+      continue-on-error: true
       shell: bash
 
   run-tests:
@@ -81,10 +82,10 @@ jobs:
         if: always()
         run: ./tests/test_python_cli.sh
         shell: bash
-          #- name: Test python GUI
-          #if: always()
-          #run: ./tests/test_python_gui.sh
-          #shell: bash
+      #- name: Test python GUI
+      #  if: always()
+      #  run: ./tests/test_python_gui.sh
+      #  shell: bash
       - name: Install python package
         if: always()
         run: ./deploy/python_install_pip_pkg.sh
@@ -124,7 +125,7 @@ jobs:
         fi
         echo "hastag=$hastag" >> $GITHUB_OUTPUT
     - name: Build kernel patch
-      if: steps.check-kernel-module-change.workflows == 'true' || steps.check_if_tagged.outputs.hastag == 1
+      if: needs.check-kernel-module-change.outputs.output1 == 'true' || steps.check_if_tagged.outputs.hastag == 1
       run: ./deploy/build_kernelpatch.sh
       shell: bash
     - name: Set tag name
@@ -135,34 +136,17 @@ jobs:
         echo "tag=$tag" >> $GITHUB_OUTPUT
         tag_version=$(git describe --tags --abbrev=0 | sed 's/[^0-9.]*//g')
         echo "tag_version=$tag_version" >> $GITHUB_OUTPUT
-    - name: Create Draft Release
+    - name: Create Release with Kernel Patch
       if: steps.check_if_tagged.outputs.hastag == 1
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.tag.outputs.tag }}
-        release_name: ${{ steps.tag.outputs.tag }}
-        draft: true
+        name: ${{ steps.tag.outputs.tag }}
+        draft: false
         prerelease: false
-    - name: Upload Release - Kernel Patch
-      if: steps.check_if_tagged.outputs.hastag == 1
-      uses: actions/upload-release-asset@v1.0.1
+        files: /tmp/linux/linux/0001-Add-legion-laptop-v${{ steps.tag.outputs.tag_version }}.patch
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: /tmp/linux/linux/0001-Add-legion-laptop-v${{ steps.tag.outputs.tag_version }}.patch
-        asset_name: 0001-Add-legion-laptop-v${{ steps.tag.outputs.tag_version }}.patch
-        asset_content_type: text/plain
-    - name: Publish Release
-      if: steps.check_if_tagged.outputs.hastag == 1
-      uses: eregon/publish-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        release_id: ${{ steps.create_release.outputs.id }}
 
   test-in-docker-container:
     needs: [build, run-tests]
