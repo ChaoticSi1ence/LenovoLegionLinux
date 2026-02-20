@@ -4853,9 +4853,17 @@ static const struct legion_wmi_private legion_wmi_context_f = {
 };
 
 #define LEGION_WMI_GUID_FAN_EVENT "D320289E-8FEA-41E0-86F9-611D83151B5F"
+/*
+ * Fan2Event ("Fancooling finish event") — not present in ACPI on all models
+ * (e.g. absent on Q7CN/EC 0x5508). The WMI bus silently skips unmatched IDs.
+ */
 #define LEGION_WMI_GUID_FAN2_EVENT "bc72a435-e8c1-4275-b3e2-d8b8074aba59"
 #define LEGION_WMI_GUID_GAMEZONE_KEY_EVENT \
 	"10afc6d9-ea8b-4590-a2e7-1cd3c84bb4b1"
+/*
+ * GPU, OC, and TEMP event GUIDs — not present in ACPI on all models
+ * (e.g. absent on Q7CN/EC 0x5508). Harmless: WMI bus skips unmatched IDs.
+ */
 #define LEGION_WMI_GUID_GAMEZONE_GPU_EVENT \
 	"bfd42481-aee3-4502-a107-afb68425c5f8"
 #define LEGION_WMI_GUID_GAMEZONE_OC_EVENT "d062906b-12d4-4510-999d-4831ee80e985"
