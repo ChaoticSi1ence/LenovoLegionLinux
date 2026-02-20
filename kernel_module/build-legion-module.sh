@@ -3,8 +3,8 @@ set -e
 
 # Build and install script for legion-laptop.ko
 #
-# Automatically detects LLVM toolchain (required for CachyOS/Arch kernels
-# built with clang). Falls back to gcc if LLVM is not needed.
+# The Makefile auto-detects LLVM toolchain (required for CachyOS/Arch
+# kernels built with clang). No manual toolchain flags needed.
 #
 # Usage:
 #   sudo ./build-legion-module.sh              # build, install, and load
@@ -87,10 +87,10 @@ detect_toolchain() {
         fi
     fi
 
-    # Fallback: check if Makefile in kernel build dir mentions clang
+    # Fallback: check kernel build config for clang
     local build_dir="/lib/modules/${KVER}/build"
     if [ -d "$build_dir" ]; then
-        if grep -q 'clang' "${build_dir}/.config" 2>/dev/null; then
+        if grep -q '^CONFIG_CC_IS_CLANG=y' "${build_dir}/.config" 2>/dev/null; then
             echo "clang"
             return
         fi
@@ -100,12 +100,14 @@ detect_toolchain() {
 }
 
 do_build() {
+    [ -f Makefile ] || die "Makefile not found in $(pwd) - run from kernel_module/"
+
     local toolchain
     toolchain="$(detect_toolchain)"
 
     echo "=== Legion Laptop Module Builder ==="
     echo "Kernel:    ${KVER}"
-    echo "Toolchain: ${toolchain}"
+    echo "Toolchain: ${toolchain} (auto-detected by Makefile)"
     echo ""
 
     echo ">> Cleaning previous build..."
@@ -113,18 +115,14 @@ do_build() {
 
     echo ""
     echo ">> Building ${MODULE_NAME}.ko..."
-    if [ "$toolchain" = "clang" ]; then
-        make CC=clang LD=ld.lld
-    else
-        make
-    fi
+    make
 
     if [ ! -f "${MODULE_NAME}.ko" ]; then
         die "Build failed: ${MODULE_NAME}.ko not found"
     fi
 
     echo ""
-    echo "Build successful: $(ls -lh "${MODULE_NAME}.ko" | awk '{print $5}')"
+    echo "Build successful: $(du -sh "${MODULE_NAME}.ko" | cut -f1)"
 }
 
 do_install() {

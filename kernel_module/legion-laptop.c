@@ -1027,15 +1027,15 @@ static const struct model_config model_nrcn = {
 	.ramio_size = 0x600
 };
 
-/* Legion Pro 7 16IAX10H (2025) - Model 83F5 */
-/* Intel Core Ultra 9 275HX, RTX 5090 Laptop, 3 fans */
-/* EC ID 0x5508 (ITE IT5508) verified on hardware */
+// Legion Pro 7 16IAX10H (2025) - Model 83F5 - Core Ultra 9 275HX, RTX 5090, 3 fans
+// EC ID: ITE IT5508 (0x5508), verified on hardware
 static const struct model_config model_q7cn = {
 	.registers = &ec_register_offsets_v0,
 	.check_embedded_controller_id = true,
 	.embedded_controller_id = 0x5508,
 	.memoryio_physical_ec_start = 0xC400,
 	.memoryio_size = 0x300,
+	.num_fans = 3,
 	.has_minifancurve = false,
 	.has_custom_powermode = true,
 	.access_method_powermode = ACCESS_METHOD_WMI,
@@ -1047,8 +1047,7 @@ static const struct model_config model_q7cn = {
 	.access_method_fanfullspeed = ACCESS_METHOD_WMI,
 	.acpi_check_dev = false,
 	.ramio_physical_start = 0xFE0B0400,
-	.ramio_size = 0x600,
-	.num_fans = 3
+	.ramio_size = 0x600
 };
 
 static const struct dmi_system_id denylist[] = { {} };
@@ -2730,7 +2729,7 @@ static ssize_t wmi_read_fanspeed(int fan_id, int *fanspeed_rpm)
 	return err;
 }
 
-//sensor_id: cpu = 0, gpu = 1
+// sensor_id: cpu = 0, gpu = 1
 static ssize_t wmi_read_temperature(int sensor_id, int *temperature)
 {
 	int err;
@@ -2778,7 +2777,7 @@ static ssize_t wmi_read_fanspeed_gz(int fan_id, int *fanspeed_rpm)
 	return err;
 }
 
-//sensor_id: cpu = 0, gpu = 1
+// sensor_id: cpu = 0, gpu = 1
 static ssize_t wmi_read_temperature_gz(int sensor_id, int *temperature)
 {
 	int err;
@@ -2824,7 +2823,7 @@ static ssize_t wmi_read_fanspeed_other(int fan_id, int *fanspeed_rpm)
 	return err;
 }
 
-//sensor_id: cpu = 0, gpu = 1
+// sensor_id: cpu = 0, gpu = 1
 static ssize_t wmi_read_temperature_other(int sensor_id, int *temperature)
 {
 	int err;
@@ -3472,12 +3471,9 @@ static ssize_t read_fanfullspeed(struct legion_private *priv, bool *state)
 
 static ssize_t write_fanfullspeed(struct legion_private *priv, bool state)
 {
-	ssize_t res;
-
 	switch (priv->conf->access_method_fanfullspeed) {
 	case ACCESS_METHOD_EC:
-		res = ec_write_fanfullspeed(&priv->ecram, priv->conf, state);
-		return res;
+		return ec_write_fanfullspeed(&priv->ecram, priv->conf, state);
 	case ACCESS_METHOD_WMI:
 		return wmi_write_fanfullspeed(priv, state);
 	default:
@@ -4854,22 +4850,22 @@ static const struct legion_wmi_private legion_wmi_context_f = {
 
 #define LEGION_WMI_GUID_FAN_EVENT "D320289E-8FEA-41E0-86F9-611D83151B5F"
 /*
- * Fan2Event ("Fancooling finish event") — not present in ACPI on all models
+ * Fan2Event ("Fancooling finish event") - not present in ACPI on all models
  * (e.g. absent on Q7CN/EC 0x5508). The WMI bus silently skips unmatched IDs.
  */
-#define LEGION_WMI_GUID_FAN2_EVENT "bc72a435-e8c1-4275-b3e2-d8b8074aba59"
+#define LEGION_WMI_GUID_FAN2_EVENT "BC72A435-E8C1-4275-B3E2-D8B8074ABA59"
 #define LEGION_WMI_GUID_GAMEZONE_KEY_EVENT \
-	"10afc6d9-ea8b-4590-a2e7-1cd3c84bb4b1"
+	"10AFC6D9-EA8B-4590-A2E7-1CD3C84BB4B1"
 /*
- * GPU, OC, and TEMP event GUIDs — not present in ACPI on all models
- * (e.g. absent on Q7CN/EC 0x5508). Harmless: WMI bus skips unmatched IDs.
+ * GPU, OC, and TEMP event GUIDs - not present in ACPI on all models
+ * (e.g. absent on Q7CN/EC 0x5508). The WMI bus silently skips unmatched IDs.
  */
 #define LEGION_WMI_GUID_GAMEZONE_GPU_EVENT \
-	"bfd42481-aee3-4502-a107-afb68425c5f8"
-#define LEGION_WMI_GUID_GAMEZONE_OC_EVENT "d062906b-12d4-4510-999d-4831ee80e985"
+	"BFD42481-AEE3-4502-A107-AFB68425C5F8"
+#define LEGION_WMI_GUID_GAMEZONE_OC_EVENT "D062906B-12D4-4510-999D-4831EE80E985"
 #define LEGION_WMI_GUID_GAMEZONE_TEMP_EVENT \
-	"bfd42481-aee3-4501-a107-afb68425c5f8"
-//#define LEGION_WMI_GUID_GAMEZONE_DATA_EVENT  "887b54e3-dddc-4b2c-8b88-68a26a8835d0"
+	"BFD42481-AEE3-4501-A107-AFB68425C5F8"
+/* #define LEGION_WMI_GUID_GAMEZONE_DATA_EVENT "887B54E3-DDDC-4B2C-8B88-68A26A8835D0" */
 
 static const struct wmi_device_id legion_wmi_ids[] = {
 	{ LEGION_WMI_GAMEZONE_GUID, &legion_wmi_context_gamezone },
@@ -5695,7 +5691,7 @@ static ssize_t pwm1_mode_store(struct device *dev,
 			       const char *buf, size_t count)
 {
 	int value;
-	int is_maximumfanspeed;
+	bool is_maximumfanspeed;
 	int err;
 	struct legion_private *priv = dev_get_drvdata(dev);
 
@@ -5704,7 +5700,7 @@ static ssize_t pwm1_mode_store(struct device *dev,
 		pr_info("Parsing hwmon store failed: error:%d\n", err);
 		return err;
 	}
-	is_maximumfanspeed = value == 0;
+	is_maximumfanspeed = (value == 0);
 
 	mutex_lock(&priv->fancurve_mutex);
 	err = write_fanfullspeed(priv, is_maximumfanspeed);
