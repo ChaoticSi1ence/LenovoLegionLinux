@@ -5680,18 +5680,14 @@ static ssize_t pwm1_mode_show(struct device *dev,
 	struct legion_private *priv = dev_get_drvdata(dev);
 
 	mutex_lock(&priv->fancurve_mutex);
-	err = ec_read_fanfullspeed(&priv->ecram, priv->conf, &value);
+	err = read_fanfullspeed(priv, &value);
 	if (err) {
-		err = -1;
-		pr_info("Failed to pwm1_mode/maximumfanspeed\n");
-		goto error_unlock;
+		pr_info("Failed to read pwm1_mode/maximumfanspeed\n");
+		mutex_unlock(&priv->fancurve_mutex);
+		return -EIO;
 	}
 	mutex_unlock(&priv->fancurve_mutex);
 	return sysfs_emit(buf, "%d\n", value ? 0 : 2);
-
-error_unlock:
-	mutex_unlock(&priv->fancurve_mutex);
-	return -EIO;
 }
 
 static ssize_t pwm1_mode_store(struct device *dev,
@@ -5706,24 +5702,19 @@ static ssize_t pwm1_mode_store(struct device *dev,
 	err = kstrtoint(buf, 0, &value);
 	if (err) {
 		pr_info("Parsing hwmon store failed: error:%d\n", err);
-		goto error;
+		return err;
 	}
 	is_maximumfanspeed = value == 0;
 
 	mutex_lock(&priv->fancurve_mutex);
-	err = ec_write_fanfullspeed(&priv->ecram, priv->conf,
-				    is_maximumfanspeed);
+	err = write_fanfullspeed(priv, is_maximumfanspeed);
 	if (err) {
 		pr_info("Failed to write pwm1_mode/maximumfanspeed\n");
-		goto error_unlock;
+		mutex_unlock(&priv->fancurve_mutex);
+		return err;
 	}
 	mutex_unlock(&priv->fancurve_mutex);
 	return count;
-
-error_unlock:
-	mutex_unlock(&priv->fancurve_mutex);
-error:
-	return err;
 }
 
 static SENSOR_DEVICE_ATTR_RW(pwm1_mode, pwm1_mode, 0);
