@@ -61,7 +61,6 @@ reverse_engineer
 modules.order
 Module.symvers
 Mkfile.old
-dkms.conf
 
 build/
 dist/

@@ -1,14 +1,15 @@
+# Pacman hook to rebuild the legion-laptop DKMS module after kernel updates.
+# Triggers on any kernel's headers being installed or upgraded (distro-agnostic).
+# Install to /etc/pacman.d/hooks/71-legion-laptop-dkms.hook
+
 [Trigger]
-Operation=Install
-Operation=Upgrade
-Operation=Remove
-Type=Package
-Target = linux 
-Target = linux-headers
-Target = linux-zen
-Target = linux-zen-headers
-Target = lenovolegionlinux-dkms-git
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = usr/lib/modules/*/build/include/
 
 [Action]
+Description = Rebuilding legion-laptop DKMS module for updated kernel...
 When = PostTransaction
-Exec = /usr/bin/LenovoLegionLinux
+Depends = dkms
+Exec = /usr/bin/dkms install LenovoLegionLinux/0.1.0 --all

@@ -10,7 +10,8 @@ endif
 #install dir for kernel drivers
 INSTALLDIR := /lib/modules/$(KERNELVERSION)/kernel/drivers/platform/x86
 MODDESTDIR := /lib/modules/$(KERNELVERSION)/kernel/drivers/platform/x86
-DKMSDIR := /usr/src/LenovoLegionLinux-1.0.0
+DKMS_VERSION := 0.1.0
+DKMSDIR := /usr/src/LenovoLegionLinux-$(DKMS_VERSION)
 
 obj-m += legion-laptop.o
 
@@ -74,17 +75,13 @@ forcereloadmodule_disableplatformprofile:
 	bash -c "./issue-warning.sh"
 
 dkms: all
-	if [ -d $(DKMSDIR) ]; then\
-    	rm --recursive $(DKMSDIR)/*;\
-        cp --recursive * $(DKMSDIR)/;\
-	else \
-		mkdir --verbose $(DKMSDIR);\
-        cp --recursive * $(DKMSDIR);\
-		dkms add -m LenovoLegionLinux -v 1.0.0;\
-	fi
-	dkms build LenovoLegionLinux --force -v 1.0.0
-	dkms install LenovoLegionLinux --force -v 1.0.0
-	printf "%s\n" "Loading module"
+	dkms remove -m LenovoLegionLinux -v $(DKMS_VERSION) --all 2>/dev/null || true
+	rm -rf $(DKMSDIR)
+	mkdir -p $(DKMSDIR)
+	cp -r * $(DKMSDIR)/
+	dkms add -m LenovoLegionLinux -v $(DKMS_VERSION)
+	dkms build -m LenovoLegionLinux -v $(DKMS_VERSION) --force
+	dkms install -m LenovoLegionLinux -v $(DKMS_VERSION) --force
+	printf "%s\n" "DKMS install complete. Loading module..."
 	modprobe legion_laptop
 	dmesg --ctime | grep legion_laptop
-	bash -c "./issue-warning.sh"
