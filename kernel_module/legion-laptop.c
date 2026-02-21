@@ -92,6 +92,11 @@ MODULE_PARM_DESC(
 	ec_readonly,
 	"Only read from embedded controller but do not write or change settings.");
 
+static bool wmi_dryrun;
+module_param(wmi_dryrun, bool, 0440);
+MODULE_PARM_DESC(wmi_dryrun,
+		 "Log WMI write calls but do not execute them (dry run mode).");
+
 static bool enable_platformprofile = true;
 module_param(enable_platformprofile, bool, 0440);
 MODULE_PARM_DESC(
@@ -1614,6 +1619,12 @@ static int wmi_exec_arg(const char *guid, u8 instance, u32 method_id, void *arg,
 	struct acpi_buffer params;
 	acpi_status status;
 
+	if (wmi_dryrun) {
+		pr_info("WMI dry run: skipping write to %s method %u (%zu bytes)\n",
+			guid, method_id, arg_size);
+		return 0;
+	}
+
 	params.length = arg_size;
 	params.pointer = arg;
 	status = wmi_evaluate_method(guid, instance, method_id, &params, NULL);
@@ -1813,6 +1824,16 @@ static ssize_t wmi_other_method_get_value(enum OtherMethodFeature feature_id,
 	if (!error)
 		*value = res;
 	return error;
+}
+
+static ssize_t __maybe_unused
+wmi_other_method_set_value(enum OtherMethodFeature feature_id, int value)
+{
+	u32 args[2] = { feature_id, value };
+
+	return wmi_exec_arg(LEGION_WMI_LENOVO_OTHER_METHOD_GUID, 0,
+			    WMI_METHOD_ID_SET_FEATURE_VALUE, args,
+			    sizeof(args));
 }
 
 /* =================================== */

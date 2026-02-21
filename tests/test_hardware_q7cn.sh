@@ -13,10 +13,12 @@
 #   --skip-blacklist   Skip upstream module blacklist creation
 #   --install-blacklist Actually write the blacklist file (otherwise dry-run)
 #   --test-extreme     Test writing Extreme power mode (0xE0) to hardware
+#   --wmi-dryrun       Load module with wmi_dryrun=1 and test write paths safely
 #   --help             Show this help
 #
 # WARNING: This script requires root. Some tests modify hardware state.
 #          --test-extreme will change your power mode.
+#          --wmi-dryrun is safe: WMI writes are logged but not executed.
 # =============================================================================
 
 set -euo pipefail
@@ -58,6 +60,7 @@ SKIP_BUILD=false
 SKIP_BLACKLIST=false
 INSTALL_BLACKLIST=false
 TEST_EXTREME=false
+WMI_DRYRUN=false
 
 # === Argument Parsing ===
 for arg in "$@"; do
@@ -66,6 +69,7 @@ for arg in "$@"; do
         --skip-blacklist)   SKIP_BLACKLIST=true ;;
         --install-blacklist) INSTALL_BLACKLIST=true ;;
         --test-extreme)     TEST_EXTREME=true ;;
+        --wmi-dryrun)       WMI_DRYRUN=true ;;
         --help)
             head -20 "$0" | grep '^#' | sed 's/^# \?//'
             exit 0
@@ -352,16 +356,22 @@ fi
 # Clear dmesg marker
 DMESG_MARKER=$(dmesg --raw | tail -1 | cut -d' ' -f1 || true)
 
-info "Loading module with enable_platformprofile=false..."
-INSMOD_OUT=$(insmod "$MODULE_KO" enable_platformprofile=false 2>&1) && INSMOD_RC=0 || INSMOD_RC=$?
+INSMOD_PARAMS="enable_platformprofile=false"
+if [ "$WMI_DRYRUN" = true ]; then
+    INSMOD_PARAMS="$INSMOD_PARAMS wmi_dryrun=1"
+    info "Loading module with wmi_dryrun=1 (WMI writes will be logged but NOT executed)..."
+else
+    info "Loading module with enable_platformprofile=false..."
+fi
+INSMOD_OUT=$(insmod "$MODULE_KO" $INSMOD_PARAMS 2>&1) && INSMOD_RC=0 || INSMOD_RC=$?
 
 if [ "$INSMOD_RC" -ne 0 ]; then
-    # If "File exists", the old module is still loaded — force unload and retry
+    # If "File exists", the old module is still loaded - force unload and retry
     if echo "$INSMOD_OUT" | grep -qi "file exists\|already loaded"; then
         warn "Module already loaded, forcing unload and retrying..."
         rmmod legion_laptop 2>/dev/null || rmmod legion-laptop 2>/dev/null || true
         sleep 1
-        INSMOD_OUT=$(insmod "$MODULE_KO" enable_platformprofile=false 2>&1) && INSMOD_RC=0 || INSMOD_RC=$?
+        INSMOD_OUT=$(insmod "$MODULE_KO" $INSMOD_PARAMS 2>&1) && INSMOD_RC=0 || INSMOD_RC=$?
     fi
 fi
 
@@ -737,6 +747,157 @@ if [ "$LED_FOUND" = false ]; then
 fi
 
 # =============================================================================
+# SECTION 14b: WMI Dry-Run Tests (fan control + extreme mode)
+# =============================================================================
+if [ "$WMI_DRYRUN" = true ]; then
+    section "14b. WMI Dry-Run Tests (wmi_dryrun=1 - NO hardware writes)"
+
+    info "wmi_dryrun=1: All WMI writes are logged in dmesg but NOT executed."
+    info "This validates the full code path safely."
+    echo ""
+
+    # --- Fan fullspeed read ---
+    if [ -n "$SYSFS_BASE" ] && [ -f "$SYSFS_BASE/fan_fullspeed" ]; then
+        FS_VAL=$(cat "$SYSFS_BASE/fan_fullspeed" 2>/dev/null || echo "ERROR")
+        pass "fan_fullspeed read: $FS_VAL (WMI GET_FULLSPEED method 1)"
+    else
+        warn "fan_fullspeed not available"
+    fi
+
+    # --- Fan maxspeed read ---
+    if [ -n "$SYSFS_BASE" ] && [ -f "$SYSFS_BASE/fan_maxspeed" ]; then
+        MS_VAL=$(cat "$SYSFS_BASE/fan_maxspeed" 2>/dev/null || echo "ERROR")
+        pass "fan_maxspeed read: $MS_VAL (WMI GET_MAXSPEED method 3)"
+    else
+        warn "fan_maxspeed not available"
+    fi
+
+    # --- Fan curve read via debugfs ---
+    FANCURVE_FILE="/sys/kernel/debug/legion/fancurve"
+    if [ -f "$FANCURVE_FILE" ]; then
+        info "Fan curve read (WMI GET_TABLE method 5):"
+        cat "$FANCURVE_FILE" 2>/dev/null | head -15 | sed 's/^/         /'
+        pass "Fan curve read successful"
+    else
+        info "Fan curve debugfs not available"
+    fi
+
+    # --- Fan curve read via hwmon ---
+    if [ -n "$HWMON_DIR" ]; then
+        info "Fan curve points via hwmon (all 10 speed points):"
+        ALL_OK=true
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+            F="$HWMON_DIR/pwm1_auto_point${i}_pwm"
+            if [ -f "$F" ]; then
+                V=$(cat "$F" 2>/dev/null || echo "ERR")
+                echo -e "         point${i}: speed1=$V"
+            else
+                ALL_OK=false
+            fi
+        done
+        if [ "$ALL_OK" = true ]; then
+            pass "All 10 fan curve speed points readable"
+        else
+            warn "Some fan curve speed points missing"
+        fi
+    fi
+
+    echo ""
+    info "--- Dry-run WRITE tests (WMI calls logged, NOT executed) ---"
+    echo ""
+
+    # --- Dry-run: fan_fullspeed write ---
+    if [ -n "$SYSFS_BASE" ] && [ -f "$SYSFS_BASE/fan_fullspeed" ]; then
+        SAVED_FS=$(cat "$SYSFS_BASE/fan_fullspeed" 2>/dev/null || echo "0")
+        echo "$SAVED_FS" > "$SYSFS_BASE/fan_fullspeed" 2>&1 && {
+            pass "fan_fullspeed dry-run write: value=$SAVED_FS (wrote same value back)"
+        } || {
+            fail "fan_fullspeed dry-run write failed"
+        }
+
+        # Check dmesg for the dry-run log
+        sleep 0.5
+        DRYRUN_MSG=$(dmesg | grep "WMI dry run" | tail -1 || true)
+        if echo "$DRYRUN_MSG" | grep -q "dry run"; then
+            pass "dmesg confirms WMI write was intercepted:"
+            echo "         $DRYRUN_MSG"
+        else
+            warn "No dry-run message in dmesg (write may not have reached wmi_exec_arg)"
+        fi
+    fi
+
+    # --- Dry-run: fan_maxspeed write ---
+    if [ -n "$SYSFS_BASE" ] && [ -f "$SYSFS_BASE/fan_maxspeed" ]; then
+        SAVED_MS=$(cat "$SYSFS_BASE/fan_maxspeed" 2>/dev/null || echo "0")
+        echo "$SAVED_MS" > "$SYSFS_BASE/fan_maxspeed" 2>&1 && {
+            pass "fan_maxspeed dry-run write: value=$SAVED_MS (wrote same value back)"
+        } || {
+            fail "fan_maxspeed dry-run write failed"
+        }
+    fi
+
+    # --- Dry-run: extreme mode write ---
+    if [ -n "$SYSFS_BASE" ] && [ -f "$SYSFS_BASE/powermode" ]; then
+        SAVED_PM=$(cat "$SYSFS_BASE/powermode" 2>/dev/null || echo "ERROR")
+        info "Current power mode: $SAVED_PM"
+
+        echo 224 > "$SYSFS_BASE/powermode" 2>&1 && {
+            pass "Extreme mode (224) dry-run write: code path validated"
+        } || {
+            fail "Extreme mode (224) dry-run write: rejected by validation"
+            dmesg | tail -3 | sed 's/^/         /'
+        }
+
+        # Verify the mode didn't actually change (dry run should skip WMI)
+        sleep 0.5
+        AFTER_PM=$(cat "$SYSFS_BASE/powermode" 2>/dev/null || echo "ERROR")
+        if [ "$AFTER_PM" = "$SAVED_PM" ]; then
+            pass "Power mode unchanged after dry-run write (was $SAVED_PM, still $AFTER_PM)"
+        else
+            warn "Power mode changed to $AFTER_PM (expected $SAVED_PM to be unchanged in dry-run)"
+        fi
+
+        # Check dmesg for dry-run log
+        DRYRUN_PM=$(dmesg | grep "WMI dry run" | grep "method 44" | tail -1 || true)
+        if [ -n "$DRYRUN_PM" ]; then
+            pass "dmesg confirms extreme mode WMI write was intercepted:"
+            echo "         $DRYRUN_PM"
+        fi
+
+        # Restore just in case (writes are dry-run anyway)
+        echo "$SAVED_PM" > "$SYSFS_BASE/powermode" 2>/dev/null || true
+    fi
+
+    # --- Dry-run: fan curve write (write current values back) ---
+    if [ -n "$HWMON_DIR" ] && [ -f "$HWMON_DIR/pwm1_auto_point1_pwm" ]; then
+        CUR_SPEED=$(cat "$HWMON_DIR/pwm1_auto_point1_pwm" 2>/dev/null || echo "ERR")
+        if [ "$CUR_SPEED" != "ERR" ]; then
+            echo "$CUR_SPEED" > "$HWMON_DIR/pwm1_auto_point1_pwm" 2>&1 && {
+                pass "Fan curve dry-run write: pwm1_auto_point1_pwm=$CUR_SPEED (wrote same value)"
+            } || {
+                fail "Fan curve dry-run write failed"
+            }
+
+            # Check for SET_TABLE dry-run message
+            sleep 0.5
+            DRYRUN_FC=$(dmesg | grep "WMI dry run" | grep "method 6" | tail -1 || true)
+            if [ -n "$DRYRUN_FC" ]; then
+                pass "dmesg confirms fan curve WMI SET_TABLE was intercepted:"
+                echo "         $DRYRUN_FC"
+            fi
+        fi
+    fi
+
+    echo ""
+    info "--- Dry-run dmesg summary ---"
+    dmesg | grep "WMI dry run" | tail -10 | sed 's/^/         /'
+
+else
+    # Not in dry-run mode — skip this section
+    :
+fi
+
+# =============================================================================
 # SECTION 15: EC Register Mapping Verification
 # =============================================================================
 section "15. EC Register Mapping Notes"
@@ -874,8 +1035,9 @@ fi
 echo ""
 echo -e "${BOLD}Next steps:${NC}"
 echo "  1. If fan3 was detected, 3-fan support is confirmed working"
-echo "  2. Run with --test-extreme to verify Extreme power mode"
-echo "  3. Run with --install-blacklist to persist upstream module blacklist"
-echo "  4. After blacklist: reboot, then re-run this script to verify clean state"
+echo "  2. Run with --wmi-dryrun to safely test fan control and extreme mode writes"
+echo "  3. Run with --test-extreme to actually write Extreme power mode to hardware"
+echo "  4. Run with --install-blacklist to persist upstream module blacklist"
+echo "  5. After blacklist: reboot, then re-run this script to verify clean state"
 echo ""
 echo -e "Log saved to: ${BOLD}${LOG_FILE}${NC}"
