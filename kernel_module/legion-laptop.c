@@ -2254,7 +2254,7 @@ static bool fancurve_set_speed_pwm(struct fancurve *fancurve, int point_id,
 {
 	u8 *speed;
 
-	if (!(point_id == 0 ? value == 0 : (value >= 0 && value <= 255))) {
+	if (!(value >= 0 && value <= 255)) {
 		pr_err("Value %d PWM not in allowed range to point with id %d",
 		       value, point_id);
 		return false;

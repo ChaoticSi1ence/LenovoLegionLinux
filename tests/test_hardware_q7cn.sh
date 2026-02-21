@@ -615,9 +615,9 @@ if [ -n "$HWMON_DIR" ]; then
     done
 
     # Count total fan curve files (use find to avoid glob expansion issues)
-    PWM1_COUNT=$(find "$HWMON_DIR" -maxdepth 1 -name 'pwm1_auto_point*_pwm' 2>/dev/null | wc -l)
-    PWM2_COUNT=$(find "$HWMON_DIR" -maxdepth 1 -name 'pwm2_auto_point*_pwm' 2>/dev/null | wc -l)
-    PWM3_PWM_COUNT=$(find "$HWMON_DIR" -maxdepth 1 -name 'pwm3_auto_point*_pwm' 2>/dev/null | wc -l)
+    PWM1_COUNT=$(find -L "$HWMON_DIR" -maxdepth 1 -name 'pwm1_auto_point*_pwm' 2>/dev/null | wc -l)
+    PWM2_COUNT=$(find -L "$HWMON_DIR" -maxdepth 1 -name 'pwm2_auto_point*_pwm' 2>/dev/null | wc -l)
+    PWM3_PWM_COUNT=$(find -L "$HWMON_DIR" -maxdepth 1 -name 'pwm3_auto_point*_pwm' 2>/dev/null | wc -l)
 
     pass "Fan curve points: pwm1=$PWM1_COUNT, pwm2=$PWM2_COUNT"
     if [ "$PWM3_PWM_COUNT" -gt 0 ]; then
