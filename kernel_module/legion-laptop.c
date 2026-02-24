@@ -227,7 +227,7 @@ struct model_config {
 	phys_addr_t ramio_physical_start;
 	size_t ramio_size;
 
-	/* Number of fans: 2 for most models, 3 for Q7CN and similar */
+	/* Number of fans: 2 for most models, 3 for Q7CN/SMCN and similar */
 	int num_fans;
 };
 
@@ -1055,6 +1055,34 @@ static const struct model_config model_q7cn = {
 	.ramio_size = 0x600
 };
 
+/*
+ * Legion Pro 7 16AFR10H (2025) - Model 83RU - Ryzen 9 9955HX, RTX 5070 Ti, 3 fans
+ * EC ID: ITE IT5508 (0x5508), reported by gluceri (upstream issue #385)
+ * AMD variant of the Gen 10 Legion Pro 7 (same chassis as Q7CN/83F5).
+ * Identical to model_q7cn except ramio_physical_start differs on AMD.
+ * EC direct reads give wrong values; WMI3 access methods required.
+ */
+static const struct model_config model_smcn = {
+	.registers = &ec_register_offsets_v0,
+	.check_embedded_controller_id = true,
+	.embedded_controller_id = 0x5508,
+	.memoryio_physical_ec_start = 0xC400,
+	.memoryio_size = 0x300,
+	.num_fans = 3,
+	.has_minifancurve = false,
+	.has_custom_powermode = true,
+	.access_method_powermode = ACCESS_METHOD_WMI,
+	/* RGB keyboard controlled via USB, not WMI (same chassis as Q7CN) */
+	.access_method_keyboard = ACCESS_METHOD_NO_ACCESS,
+	.access_method_fanspeed = ACCESS_METHOD_WMI3,
+	.access_method_temperature = ACCESS_METHOD_WMI3,
+	.access_method_fancurve = ACCESS_METHOD_WMI3,
+	.access_method_fanfullspeed = ACCESS_METHOD_WMI,
+	.acpi_check_dev = false,
+	.ramio_physical_start = 0xFE00D400,
+	.ramio_size = 0x600
+};
+
 static const struct dmi_system_id denylist[] = { {} };
 
 static const struct dmi_system_id optimistic_allowlist[] = {
@@ -1449,6 +1477,16 @@ static const struct dmi_system_id optimistic_allowlist[] = {
 			DMI_MATCH(DMI_BIOS_VERSION, "Q7CN"),
 		},
 		.driver_data = (void *)&model_q7cn
+	},
+	{
+		/* Legion Pro 7 16AFR10H (83RU) */
+		/* AMD Ryzen 9 9955HX, RTX 5070 Ti Laptop */
+		.ident = "SMCN",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_BIOS_VERSION, "SMCN"),
+		},
+		.driver_data = (void *)&model_smcn
 	},
 	{}
 };
