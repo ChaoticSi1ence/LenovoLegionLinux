@@ -113,6 +113,22 @@ These fixes apply to the entire driver, not just Q7CN:
 All readable and writable: `powermode`, `rapidcharge`, `touchpad`, `fan_fullspeed`, `fan_maxspeed`,
 `lockfancontroller`, `overdrive`, `gsync`, `winkey`, `igpumode`
 
+### Also Tested: Legion Pro 7 16AFR10H (SMCN)
+
+| Component | Detail |
+|-----------|--------|
+| Model | Lenovo Legion Pro 7 16AFR10H (83RU) |
+| CPU | AMD Ryzen 9 9955HX |
+| GPU | NVIDIA GeForce RTX 5070 Ti Laptop |
+| BIOS prefix | SMCN |
+| EC | ITE IT5508 (0x5508) |
+| Status | Config added, awaiting user verification |
+
+AMD variant of the Gen 10 Legion Pro 7 (same chassis as Q7CN). Reported by
+[gluceri](https://github.com/johnfanv2/LenovoLegionLinux/issues/385) on upstream.
+EC direct reads give wrong values on this platform; WMI3 access methods required
+(handled automatically by the `model_smcn` config).
+
 ### Other Supported Models
 
 All models supported by the [upstream project](https://github.com/johnfanv2/LenovoLegionLinux#pushpin-confirmed-compatible-models)
@@ -403,6 +419,26 @@ Write `0` to unlock it. A BIOS update/reset can also fix this.
 
 Rebuild and reinstall the module. See [Build and Install](#build-and-install). Consider using
 DKMS for automatic rebuilds.
+
+**USB-C PD charging doesn't work or drops to trickle charge (Gen 10)**
+
+The Lenovo EC firmware's UCSI PPM (USB Type-C Connector System software Interface) implementation
+is broken on Gen 10 models (Q7CN, SMCN, and likely others). The kernel's `ucsi_acpi` driver queries
+this broken mailbox and actively interferes with Power Delivery negotiation. Symptoms: charger
+connects briefly at full wattage, then drops to ~1W within 30-60 seconds.
+
+Fix: blacklist the `ucsi_acpi` module:
+
+```bash
+echo "blacklist ucsi_acpi" | sudo tee /etc/modprobe.d/blacklist-ucsi.conf
+sudo reboot
+```
+
+You lose `/sys/class/typec/` sysfs reporting, but it was returning garbage data anyway. The EC's PD
+controller negotiates correctly on its own without the kernel driver interfering. This is the same
+class of bug as ThinkPad T14 Gen 5
+([fwupd/firmware-lenovo#521](https://github.com/fwupd/firmware-lenovo/issues/521), Lenovo tracker
+LO-4169). Discovered by [alstergee](https://github.com/johnfanv2/LenovoLegionLinux/issues/385).
 
 ---
 

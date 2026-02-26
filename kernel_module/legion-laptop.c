@@ -1044,8 +1044,8 @@ static const struct model_config model_q7cn = {
 	.has_minifancurve = false,
 	.has_custom_powermode = true,
 	.access_method_powermode = ACCESS_METHOD_WMI,
-	/* RGB keyboard controlled via USB, not WMI */
-	.access_method_keyboard = ACCESS_METHOD_NO_ACCESS,
+	/* WMI controls 3-level white backlight; RGB per-zone via USB HID (048d:c197) */
+	.access_method_keyboard = ACCESS_METHOD_WMI,
 	.access_method_fanspeed = ACCESS_METHOD_WMI3,
 	.access_method_temperature = ACCESS_METHOD_WMI3,
 	.access_method_fancurve = ACCESS_METHOD_WMI3,
@@ -1059,7 +1059,8 @@ static const struct model_config model_q7cn = {
  * Legion Pro 7 16AFR10H (2025) - Model 83RU - Ryzen 9 9955HX, RTX 5070 Ti, 3 fans
  * EC ID: ITE IT5508 (0x5508), reported by gluceri (upstream issue #385)
  * AMD variant of the Gen 10 Legion Pro 7 (same chassis as Q7CN/83F5).
- * Identical to model_q7cn except ramio_physical_start differs on AMD.
+ * Identical to model_q7cn except ramio_physical_start (unverified on AMD;
+ * value from gluceri's GKCN/force=1 testing, may need correction).
  * EC direct reads give wrong values; WMI3 access methods required.
  */
 static const struct model_config model_smcn = {
@@ -1072,8 +1073,8 @@ static const struct model_config model_smcn = {
 	.has_minifancurve = false,
 	.has_custom_powermode = true,
 	.access_method_powermode = ACCESS_METHOD_WMI,
-	/* RGB keyboard controlled via USB, not WMI (same chassis as Q7CN) */
-	.access_method_keyboard = ACCESS_METHOD_NO_ACCESS,
+	/* WMI controls 3-level white backlight; RGB per-zone via USB HID (048d:c197) */
+	.access_method_keyboard = ACCESS_METHOD_WMI,
 	.access_method_fanspeed = ACCESS_METHOD_WMI3,
 	.access_method_temperature = ACCESS_METHOD_WMI3,
 	.access_method_fancurve = ACCESS_METHOD_WMI3,
@@ -3019,29 +3020,89 @@ static ssize_t wmi_read_fancurve_custom(const struct model_config *model,
 	return err;
 }
 
+/*
+ * Validate that fan curve speed values are monotonically non-decreasing.
+ *
+ * The EC firmware expects a ramping fan curve. A flat curve (all identical
+ * values) or a decreasing curve can cause the EC to stop the fans entirely,
+ * leading to thermal shutdown. This was confirmed by DSDT analysis and
+ * real-world testing on Q7CN (upstream issue #385, alstergee).
+ *
+ * Returns true if the curve is valid, false otherwise.
+ */
+static bool fancurve_is_monotonic(const struct fancurve *fancurve)
+{
+	size_t i;
+
+	for (i = 1; i < fancurve->size; i++) {
+		if (fancurve->points[i].speed1 <
+		    fancurve->points[i - 1].speed1) {
+			pr_err("Fan curve not monotonic: point %zu speed %u < point %zu speed %u\n",
+			       i, fancurve->points[i].speed1, i - 1,
+			       fancurve->points[i - 1].speed1);
+			return false;
+		}
+	}
+	return true;
+}
+
+/*
+ * Write a custom fan curve via WMI (WMAB method 6, SET_TABLE).
+ *
+ * Gen 10 WMI3 fan curve architecture (from DSDT analysis, Q7CN/SMCN):
+ *
+ *   - The 10 speed values (FSS0-FSS9) are fan speed percentages (0-100),
+ *     stored in EC registers F9F0-F9F9. There are NO temperature thresholds
+ *     in the WMI protocol — the remaining bytes in the 88-byte read buffer
+ *     are hardcoded zeros in the DSDT.
+ *
+ *   - The curve is ONLY active when the EC is in Custom mode (SPMO=3,
+ *     WMI power mode 255). For Quiet/Balanced/Performance, the EC uses
+ *     its own firmware-internal curves that ignore F9F0-F9F9.
+ *
+ *   - FSTM (offset 0x00) is a table validity flag. Windows LenovoLegionToolkit
+ *     sends FSTM=1; the original driver sent 0 (via memset), which may cause
+ *     the EC to ignore or misinterpret the table.
+ *
+ *   - After the ACPI method writes the curve, it issues LECR(0xD0, 1, 1, 2)
+ *     to signal the EC to apply the new curve from F9F0-F9F9.
+ *
+ *   - Speed values MUST be monotonically non-decreasing. A flat curve (all
+ *     same values) can cause the EC to stop the fans, leading to thermal
+ *     shutdown (confirmed on Q7CN hardware).
+ */
 static ssize_t wmi_write_fancurve_custom(const struct model_config *model,
 					 const struct fancurve *fancurve)
 {
 	u8 buffer[0x20];
 	int err;
 
-	// The buffer is read like this in ACPI firmware
-	//
-	// CreateByteField (Arg2, Zero, FSTM)
-	// CreateByteField (Arg2, One, FSID)
-	// CreateDWordField (Arg2, 0x02, FSTL)
-	// CreateByteField (Arg2, 0x06, FSS0)
-	// CreateByteField (Arg2, 0x08, FSS1)
-	// CreateByteField (Arg2, 0x0A, FSS2)
-	// CreateByteField (Arg2, 0x0C, FSS3)
-	// CreateByteField (Arg2, 0x0E, FSS4)
-	// CreateByteField (Arg2, 0x10, FSS5)
-	// CreateByteField (Arg2, 0x12, FSS6)
-	// CreateByteField (Arg2, 0x14, FSS7)
-	// CreateByteField (Arg2, 0x16, FSS8)
-	// CreateByteField (Arg2, 0x18, FSS9)
+	/* Reject non-monotonic curves to prevent EC fan shutdown */
+	if (!fancurve_is_monotonic(fancurve))
+		return -EINVAL;
 
+	/*
+	 * WMAB method 6 (SET_TABLE) buffer layout from DSDT:
+	 *
+	 * CreateByteField  (Arg2, 0x00, FSTM)   - table validity flag
+	 * CreateByteField  (Arg2, 0x01, FSID)   - fan set ID (unused)
+	 * CreateDWordField (Arg2, 0x02, FSTL)   - table length (unused)
+	 * CreateByteField  (Arg2, 0x06, FSS0)   - speed point 0
+	 * CreateByteField  (Arg2, 0x08, FSS1)   - speed point 1
+	 * CreateByteField  (Arg2, 0x0A, FSS2)   - speed point 2
+	 * CreateByteField  (Arg2, 0x0C, FSS3)   - speed point 3
+	 * CreateByteField  (Arg2, 0x0E, FSS4)   - speed point 4
+	 * CreateByteField  (Arg2, 0x10, FSS5)   - speed point 5
+	 * CreateByteField  (Arg2, 0x12, FSS6)   - speed point 6
+	 * CreateByteField  (Arg2, 0x14, FSS7)   - speed point 7
+	 * CreateByteField  (Arg2, 0x16, FSS8)   - speed point 8
+	 * CreateByteField  (Arg2, 0x18, FSS9)   - speed point 9
+	 */
 	memset(buffer, 0, sizeof(buffer));
+
+	/* FSTM: table validity flag — Windows LLT sends 1, EC may ignore 0 */
+	buffer[0x00] = 1;
+
 	buffer[0x06] = fancurve->points[0].speed1;
 	buffer[0x08] = fancurve->points[1].speed1;
 	buffer[0x0A] = fancurve->points[2].speed1;
