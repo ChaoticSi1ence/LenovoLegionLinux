@@ -103,6 +103,12 @@ MODULE_PARM_DESC(
 	enable_platformprofile,
 	"Enable the platform profile sysfs API to read and write the power mode.");
 
+static bool allow_custom_mode;
+module_param(allow_custom_mode, bool, 0440);
+MODULE_PARM_DESC(
+	allow_custom_mode,
+	"Allow custom power mode (255) on models where it is known to cause shutdown. Use at own risk.");
+
 #define LEGIONFEATURES \
 	"fancurve powermode platformprofile platformprofilenotify minifancurve fancurve_pmw_speed fancurve_rpm_speed"
 
@@ -232,6 +238,12 @@ struct model_config {
 
 	/* WMI3 fan table needs 64-byte buffer with u16 LE speeds (ITE IT5508) */
 	bool fancurve_wmi_64byte;
+
+	/*
+	 * Custom power mode (255) causes hard shutdown on some firmware
+	 * revisions. Block by default; override with allow_custom_mode=1.
+	 */
+	bool custom_powermode_unsafe;
 };
 
 /* =================================== */
@@ -1046,6 +1058,7 @@ static const struct model_config model_q7cn = {
 	.num_fans = 3,
 	.has_minifancurve = false,
 	.has_custom_powermode = true,
+	.custom_powermode_unsafe = true,
 	.access_method_powermode = ACCESS_METHOD_WMI,
 	/* WMI controls 3-level white backlight; RGB per-zone via USB HID (048d:c197) */
 	.access_method_keyboard = ACCESS_METHOD_WMI,
@@ -1077,6 +1090,7 @@ static const struct model_config model_smcn = {
 	.num_fans = 3,
 	.has_minifancurve = false,
 	.has_custom_powermode = true,
+	.custom_powermode_unsafe = true,
 	.access_method_powermode = ACCESS_METHOD_WMI,
 	/* WMI controls 3-level white backlight; RGB per-zone via USB HID (048d:c197) */
 	.access_method_keyboard = ACCESS_METHOD_WMI,
@@ -3803,6 +3817,17 @@ static ssize_t write_powermode(struct legion_private *priv,
 {
 	ssize_t res;
 
+	/*
+	 * Custom mode (255) causes hard shutdown on some firmware
+	 * revisions (confirmed on Q7CN in both Linux and Windows).
+	 * Block unless the user explicitly opts in via module parameter.
+	 */
+	if (value == LEGION_WMI_POWERMODE_CUSTOM &&
+	    priv->conf->custom_powermode_unsafe && !allow_custom_mode) {
+		pr_warn("legion-laptop: custom power mode (255) blocked on this model — known to cause shutdown. Load with allow_custom_mode=1 to override.\n");
+		return -EPERM;
+	}
+
 	switch (priv->conf->access_method_powermode) {
 	case ACCESS_METHOD_EC:
 		res = ec_write_powermode(priv, wmi_to_ec_powermode(value));
@@ -5232,6 +5257,7 @@ static int legion_platform_profile_set(struct platform_profile_handler *pprof,
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
 static bool conf_has_custom_powermode;
+static bool conf_custom_powermode_unsafe;
 static enum access_method conf_access_method_powermode;
 
 static int legion_platform_profile_probe(void *drvdata, unsigned long *choices)
@@ -5240,7 +5266,8 @@ static int legion_platform_profile_probe(void *drvdata, unsigned long *choices)
 	set_bit(PLATFORM_PROFILE_BALANCED, choices);
 	set_bit(PLATFORM_PROFILE_PERFORMANCE, choices);
 	if (conf_has_custom_powermode &&
-	    conf_access_method_powermode == ACCESS_METHOD_WMI) {
+	    conf_access_method_powermode == ACCESS_METHOD_WMI &&
+	    !(conf_custom_powermode_unsafe && !allow_custom_mode)) {
 		set_bit(PLATFORM_PROFILE_BALANCED_PERFORMANCE, choices);
 	}
 
@@ -5270,6 +5297,7 @@ static int legion_platform_profile_init(struct legion_private *priv)
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
 	conf_has_custom_powermode = priv->conf->has_custom_powermode;
+	conf_custom_powermode_unsafe = priv->conf->custom_powermode_unsafe;
 	conf_access_method_powermode = priv->conf->access_method_powermode;
 #else
 	priv->platform_profile_handler.profile_get =
@@ -5283,7 +5311,8 @@ static int legion_platform_profile_init(struct legion_private *priv)
 	set_bit(PLATFORM_PROFILE_PERFORMANCE,
 		priv->platform_profile_handler.choices);
 	if (priv->conf->has_custom_powermode &&
-	    priv->conf->access_method_powermode == ACCESS_METHOD_WMI) {
+	    priv->conf->access_method_powermode == ACCESS_METHOD_WMI &&
+	    !(priv->conf->custom_powermode_unsafe && !allow_custom_mode)) {
 		set_bit(PLATFORM_PROFILE_BALANCED_PERFORMANCE,
 			priv->platform_profile_handler.choices);
 	}
@@ -6483,7 +6512,7 @@ static int legion_add(struct platform_device *pdev)
 			 "Failed to init Y-Logo LED driver. Skipping ...\n");
 	}
 
-	err = legion_light_init(priv, &priv->iport_light, LIGHT_ID_IOPORT, 1, 2,
+	err = legion_light_init(priv, &priv->iport_light, LIGHT_ID_IOPORT, 0, 2,
 				"platform::ioport");
 	if (err) {
 		dev_info(&pdev->dev,
