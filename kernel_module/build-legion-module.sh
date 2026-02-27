@@ -70,44 +70,12 @@ check_root() {
     fi
 }
 
-detect_toolchain() {
-    # Check if the running kernel was built with clang
-    local kconfig="/boot/config-${KVER}"
-    local procconfig="/proc/config.gz"
-
-    if [ -f "$kconfig" ]; then
-        if grep -q '^CONFIG_CC_IS_CLANG=y' "$kconfig" 2>/dev/null; then
-            echo "clang"
-            return
-        fi
-    elif [ -f "$procconfig" ]; then
-        if zcat "$procconfig" 2>/dev/null | grep -q '^CONFIG_CC_IS_CLANG=y'; then
-            echo "clang"
-            return
-        fi
-    fi
-
-    # Fallback: check kernel build config for clang
-    local build_dir="/lib/modules/${KVER}/build"
-    if [ -d "$build_dir" ]; then
-        if grep -q '^CONFIG_CC_IS_CLANG=y' "${build_dir}/.config" 2>/dev/null; then
-            echo "clang"
-            return
-        fi
-    fi
-
-    echo "gcc"
-}
-
 do_build() {
     [ -f Makefile ] || die "Makefile not found in $(pwd) - run from kernel_module/"
 
-    local toolchain
-    toolchain="$(detect_toolchain)"
-
     echo "=== Legion Laptop Module Builder ==="
     echo "Kernel:    ${KVER}"
-    echo "Toolchain: ${toolchain} (auto-detected by Makefile)"
+    echo "Toolchain: auto-detected by Makefile (LLVM if kernel was built with clang)"
     echo ""
 
     echo ">> Cleaning previous build..."

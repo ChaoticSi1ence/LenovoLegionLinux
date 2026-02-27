@@ -23,6 +23,10 @@
 
 set -euo pipefail
 
+# Clean up temp build dir on exit
+cleanup() { rm -rf /tmp/km_build; }
+trap cleanup EXIT
+
 # === Auto-tee to log file ===
 LOG_FILE="/tmp/legion-test-$(date +%Y%m%d-%H%M%S).log"
 if [ -z "${LEGION_TEST_LOGGING:-}" ]; then
@@ -40,14 +44,18 @@ BLACKLIST_FILE="/etc/modprobe.d/blacklist-lenovo-wmi.conf"
 LEGION_CONF="/etc/modprobe.d/legion-laptop.conf"
 SYSFS_BASE="/sys/bus/platform/drivers/legion/PNP0C09:00"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
+# Colors for output (disable when not on a terminal, e.g. piped or logged)
+if [ -t 1 ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    CYAN='\033[0;36m'
+    BOLD='\033[1m'
+    NC='\033[0m'
+else
+    RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' NC=''
+fi
 
 # Counters
 PASS=0
@@ -322,9 +330,8 @@ else
         exit 1
     fi
 
-    # Extra warnings build
-    info "Running extra-warnings build..."
-    make -C "$KM_BUILD" clean >/dev/null 2>&1
+    # Extra warnings build (check only; reuse the .ko from the first build)
+    info "Running extra-warnings check..."
     WARN_OUTPUT=$(make -C "$KM_BUILD" allWarn 2>&1)
     EXTRA_WARNS=$(echo "$WARN_OUTPUT" | grep "legion-laptop.c" | grep -ci "warning" || true)
     if [ "$EXTRA_WARNS" -gt 0 ]; then
@@ -333,10 +340,6 @@ else
     else
         pass "Extra-warnings build: 0 warnings from our code"
     fi
-
-    # Rebuild clean for loading
-    make -C "$KM_BUILD" clean >/dev/null 2>&1
-    make -C "$KM_BUILD" >/dev/null 2>&1
 fi
 
 value "Module" "$MODULE_KO"
@@ -902,32 +905,9 @@ fi
 # =============================================================================
 section "15. EC Register Mapping Notes"
 
-info "EC offset to ACPI physical address mapping:"
-info "Formula: ACPI_addr = 0xFE500000 + (EC_offset - 0xC000)"
-echo ""
-info "Key register cross-reference:"
-echo "  ┌──────────────────────┬────────────┬──────────────┬────────────┐"
-echo "  │ Register             │ EC Offset  │ ACPI Addr    │ ACPI Field │"
-echo "  ├──────────────────────┼────────────┼──────────────┼────────────┤"
-echo "  │ Power Mode (SPMO)    │ 0xC420     │ 0xFE500420   │ SPMO       │"
-echo "  │ Fan1 Speed           │ (WMI)      │ 0xFE500406   │ FANS       │"
-echo "  │ Fan2 Speed           │ (WMI)      │ 0xFE500403   │ FA2S       │"
-echo "  │ Fan3 Speed           │ (WMI)      │ 0xFE500404   │ FASF       │"
-echo "  │ CPU Temp (curve)     │ 0xC538     │ 0xFE500538   │ (OEM)      │"
-echo "  │ GPU Temp (curve)     │ 0xC539     │ 0xFE500539   │ (OEM)      │"
-echo "  │ CPU Temp (WMI)       │ (WMI)      │ 0xFE5004B0   │ CPUT       │"
-echo "  │ GPU Temp (WMI)       │ (WMI)      │ 0xFE5004B4   │ GPUT       │"
-echo "  │ Fan1 RPM LSB         │ 0xC5E0     │ 0xFE5005E0   │ F5E0       │"
-echo "  │ Fan1 RPM MSB         │ 0xC5E1     │ 0xFE5005E1   │ CCP1       │"
-echo "  │ Fan2 RPM LSB         │ 0xC5E2     │ 0xFE5005E2   │ F5E2       │"
-echo "  │ Fan2 RPM MSB         │ 0xC5E3     │ 0xFE5005E3   │ CCP2       │"
-echo "  │ Fan Curve F9F0-F9F9  │ 0xC580-89  │ 0xFE500580-9 │ F9F0-F9F9  │"
-echo "  │ IC Temp              │ 0xC5E8     │ 0xFE5005E8   │ GGAP       │"
-echo "  └──────────────────────┴────────────┴──────────────┴────────────┘"
-echo ""
-info "model_q7cn uses ACCESS_METHOD_WMI3 for temps/fans/curves (not direct EC reads)"
-info "ramio_physical_start=0xFE0B0400 is a SEPARATE MMIO window from ACPI's 0xFE500400"
-info "Both map to the same EC RAM, but through different chipset decode paths"
+info "Q7CN uses ACCESS_METHOD_WMI3 for temps/fans/curves (not direct EC reads)"
+info "EC address formula: ACPI_addr = 0xFE500000 + (EC_offset - 0xC000)"
+info "See legion-laptop.c ec_register_offsets for full register map"
 
 # =============================================================================
 # SECTION 16: WMI GUID Presence Check

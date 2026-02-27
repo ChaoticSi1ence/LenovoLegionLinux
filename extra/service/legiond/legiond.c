@@ -27,7 +27,7 @@ void term_handler(int signum)
 {
 	close(fd);
 	clear_socket();
-	_exit(0);
+	exit(0);
 }
 
 void timer_handler(union sigval sigev_value)

@@ -25,7 +25,7 @@ allWarn:
 	$(MAKE) -C $(KSRC) M=$(shell pwd) $(if $(LLVM),LLVM=$(LLVM)) KCFLAGS=-W modules
 
 clean:
-	$(MAKE) -C $(KSRC) M=$(shell pwd) $(if $(LLVM),LLVM=$(LLVM)) clean
+	$(MAKE) -C $(KSRC) M=$(shell pwd) clean
 
 install: all
 	@rm --force --verbose $(INSTALLDIR)/legion-laptop.ko
@@ -75,7 +75,7 @@ forcereloadmodule_disableplatformprofile:
 	bash -c "./issue-warning.sh"
 
 dkms: all
-	dkms remove -m LenovoLegionLinux -v $(DKMS_VERSION) --all 2>/dev/null || true
+	dkms remove -m LenovoLegionLinux -v $(DKMS_VERSION) -k $(KERNELVERSION) 2>/dev/null || true
 	rm -rf $(DKMSDIR)
 	mkdir -p $(DKMSDIR)
 	cp -r * $(DKMSDIR)/

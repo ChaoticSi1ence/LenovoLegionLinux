@@ -68,36 +68,40 @@ int set_fancurve(POWER_STATE power_state, LEGIOND_CONFIG *config)
 		return 0;
 	}
 
-	char cmd[100] = "legion_cli fancurve-write-preset-to-hw ";
+	const char *preset = NULL;
 	switch (power_state) {
 	case P_AC_Q:
-		strcat(cmd, "quiet-ac");
+		preset = "quiet-ac";
 		break;
 	case P_BAT_Q:
-		strcat(cmd, "quiet-battery");
+		preset = "quiet-battery";
 		break;
 	case P_AC_B:
-		strcat(cmd, "balanced-ac");
+		preset = "balanced-ac";
 		break;
 	case P_BAT_B:
-		strcat(cmd, "balanced-battery");
+		preset = "balanced-battery";
 		break;
 	case P_AC_BP:
-		strcat(cmd, "balanced-performance-ac");
+		preset = "balanced-performance-ac";
 		break;
 	case P_BAT_BP:
-		strcat(cmd, "balanced-performance-battery");
+		preset = "balanced-performance-battery";
 		break;
 	case P_AC_P:
-		strcat(cmd, "performance-ac");
+		preset = "performance-ac";
 		break;
 	case P_BAT_P:
-		strcat(cmd, "performance-battery");
+		preset = "performance-battery";
 		break;
 	default:
-		cmd[0] = '\0';
 		break;
 	}
+
+	char cmd[256] = { 0 };
+	if (preset != NULL)
+		snprintf(cmd, sizeof(cmd),
+			 "legion_cli fancurve-write-preset-to-hw %s", preset);
 
 	int result = 0;
 

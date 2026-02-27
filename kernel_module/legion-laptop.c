@@ -229,6 +229,9 @@ struct model_config {
 
 	/* Number of fans: 2 for most models, 3 for Q7CN/SMCN and similar */
 	int num_fans;
+
+	/* WMI3 fan table needs 64-byte buffer with u16 LE speeds (ITE IT5508) */
+	bool fancurve_wmi_64byte;
 };
 
 /* =================================== */
@@ -1051,6 +1054,7 @@ static const struct model_config model_q7cn = {
 	.access_method_fancurve = ACCESS_METHOD_WMI3,
 	/* Gamezone WMI (FAN_GET/SET_FULLSPEED) can crash EC 0x5508; use OtherMethod */
 	.access_method_fanfullspeed = ACCESS_METHOD_WMI3,
+	.fancurve_wmi_64byte = true,
 	.acpi_check_dev = false,
 	.ramio_physical_start = 0xFE0B0400,
 	.ramio_size = 0x600
@@ -1081,6 +1085,7 @@ static const struct model_config model_smcn = {
 	.access_method_fancurve = ACCESS_METHOD_WMI3,
 	/* Gamezone WMI (FAN_GET/SET_FULLSPEED) can crash EC 0x5508; use OtherMethod */
 	.access_method_fanfullspeed = ACCESS_METHOD_WMI3,
+	.fancurve_wmi_64byte = true,
 	.acpi_check_dev = false,
 	.ramio_physical_start = 0xFE00D400,
 	.ramio_size = 0x600
@@ -3095,7 +3100,7 @@ static ssize_t wmi_write_fancurve_custom(const struct model_config *model,
 	if (!fancurve_is_monotonic(fancurve))
 		return -EINVAL;
 
-	if (model->embedded_controller_id == 0x5508) {
+	if (model->fancurve_wmi_64byte) {
 		/*
 		 * EC 0x5508 (ITE IT5508, Gen 10 Legion) requires a 64-byte
 		 * buffer with u16 LE speed values. Sending only 32 bytes
@@ -3133,8 +3138,8 @@ static ssize_t wmi_write_fancurve_custom(const struct model_config *model,
 				err);
 
 		err = wmi_exec_arg(WMI_GUID_LENOVO_FAN_METHOD, 0,
-				   WMI_METHOD_ID_FAN_SET_TABLE,
-				   buffer, sizeof(buffer));
+				   WMI_METHOD_ID_FAN_SET_TABLE, buffer,
+				   sizeof(buffer));
 	} else {
 		/*
 		 * Legacy 32-byte path for older ECs.
@@ -3157,8 +3162,8 @@ static ssize_t wmi_write_fancurve_custom(const struct model_config *model,
 			buffer[0x06 + i * 2] = fancurve->points[i].speed1;
 
 		err = wmi_exec_arg(WMI_GUID_LENOVO_FAN_METHOD, 0,
-				   WMI_METHOD_ID_FAN_SET_TABLE,
-				   buffer, sizeof(buffer));
+				   WMI_METHOD_ID_FAN_SET_TABLE, buffer,
+				   sizeof(buffer));
 	}
 
 	return err;
@@ -4808,10 +4813,11 @@ static ssize_t fan_maxspeed_show(struct device *dev,
 	struct legion_private *priv = dev_get_drvdata(dev);
 
 	/*
-	 * Gamezone WMI (FAN_GET_MAXSPEED) can crash EC 0x5508.
-	 * Use OtherMethod FAN_FULL_SPEED as a safe equivalent.
+	 * Gamezone WMI (FAN_GET_MAXSPEED) can crash some ECs (e.g. IT5508).
+	 * Models that set access_method_fanfullspeed = WMI3 use
+	 * OtherMethod FAN_FULL_SPEED as a safe equivalent.
 	 */
-	if (priv->conf->embedded_controller_id == 0x5508) {
+	if (priv->conf->access_method_fanfullspeed == ACCESS_METHOD_WMI3) {
 		int value;
 		int err;
 
@@ -4837,10 +4843,11 @@ static ssize_t fan_maxspeed_store(struct device *dev,
 	struct legion_private *priv = dev_get_drvdata(dev);
 
 	/*
-	 * Gamezone WMI (FAN_SET_MAXSPEED) can crash EC 0x5508.
-	 * Use OtherMethod FAN_FULL_SPEED as a safe equivalent.
+	 * Gamezone WMI (FAN_SET_MAXSPEED) can crash some ECs (e.g. IT5508).
+	 * Models that set access_method_fanfullspeed = WMI3 use
+	 * OtherMethod FAN_FULL_SPEED as a safe equivalent.
 	 */
-	if (priv->conf->embedded_controller_id == 0x5508) {
+	if (priv->conf->access_method_fanfullspeed == ACCESS_METHOD_WMI3) {
 		unsigned int state;
 		int err;
 
