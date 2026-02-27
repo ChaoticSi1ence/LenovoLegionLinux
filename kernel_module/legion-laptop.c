@@ -1049,7 +1049,8 @@ static const struct model_config model_q7cn = {
 	.access_method_fanspeed = ACCESS_METHOD_WMI3,
 	.access_method_temperature = ACCESS_METHOD_WMI3,
 	.access_method_fancurve = ACCESS_METHOD_WMI3,
-	.access_method_fanfullspeed = ACCESS_METHOD_WMI,
+	/* Gamezone WMI (FAN_GET/SET_FULLSPEED) can crash EC 0x5508; use OtherMethod */
+	.access_method_fanfullspeed = ACCESS_METHOD_WMI3,
 	.acpi_check_dev = false,
 	.ramio_physical_start = 0xFE0B0400,
 	.ramio_size = 0x600
@@ -1078,7 +1079,8 @@ static const struct model_config model_smcn = {
 	.access_method_fanspeed = ACCESS_METHOD_WMI3,
 	.access_method_temperature = ACCESS_METHOD_WMI3,
 	.access_method_fancurve = ACCESS_METHOD_WMI3,
-	.access_method_fanfullspeed = ACCESS_METHOD_WMI,
+	/* Gamezone WMI (FAN_GET/SET_FULLSPEED) can crash EC 0x5508; use OtherMethod */
+	.access_method_fanfullspeed = ACCESS_METHOD_WMI3,
 	.acpi_check_dev = false,
 	.ramio_physical_start = 0xFE00D400,
 	.ramio_size = 0x600
@@ -1480,6 +1482,16 @@ static const struct dmi_system_id optimistic_allowlist[] = {
 		.driver_data = (void *)&model_q7cn
 	},
 	{
+		/* Legion Pro 5 16IAX10H (83LU) — UNVERIFIED */
+		/* Pro 5 variant of Q7CN; same EC 0x5508, likely same config */
+		.ident = "Q6CN",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_BIOS_VERSION, "Q6CN"),
+		},
+		.driver_data = (void *)&model_q7cn
+	},
+	{
 		/* Legion Pro 7 16AFR10H (83RU) */
 		/* AMD Ryzen 9 9955HX, RTX 5070 Ti Laptop */
 		.ident = "SMCN",
@@ -1838,6 +1850,8 @@ enum OtherMethodFeature {
 	OtherMethodFeature_GPU_POWER_TARGET_ON_AC_OFFSET_FROM_BASELINE =
 		0x02040000,
 
+	OtherMethodFeature_FAN_FULL_SPEED = 0x04020000,
+
 	OtherMethodFeature_FAN_SPEED_1 = 0x04030001,
 	OtherMethodFeature_FAN_SPEED_2 = 0x04030002,
 	/* Fan ID 4 (3rd fan) - confirmed via ACPI WMAE method */
@@ -1865,8 +1879,8 @@ static ssize_t wmi_other_method_get_value(enum OtherMethodFeature feature_id,
 	return error;
 }
 
-static ssize_t __maybe_unused
-wmi_other_method_set_value(enum OtherMethodFeature feature_id, int value)
+static ssize_t wmi_other_method_set_value(enum OtherMethodFeature feature_id,
+					  int value)
 {
 	u32 args[2] = { feature_id, value };
 
@@ -3074,48 +3088,79 @@ static bool fancurve_is_monotonic(const struct fancurve *fancurve)
 static ssize_t wmi_write_fancurve_custom(const struct model_config *model,
 					 const struct fancurve *fancurve)
 {
-	u8 buffer[0x20];
 	int err;
+	int i;
 
 	/* Reject non-monotonic curves to prevent EC fan shutdown */
 	if (!fancurve_is_monotonic(fancurve))
 		return -EINVAL;
 
-	/*
-	 * WMAB method 6 (SET_TABLE) buffer layout from DSDT:
-	 *
-	 * CreateByteField  (Arg2, 0x00, FSTM)   - table validity flag
-	 * CreateByteField  (Arg2, 0x01, FSID)   - fan set ID (unused)
-	 * CreateDWordField (Arg2, 0x02, FSTL)   - table length (unused)
-	 * CreateByteField  (Arg2, 0x06, FSS0)   - speed point 0
-	 * CreateByteField  (Arg2, 0x08, FSS1)   - speed point 1
-	 * CreateByteField  (Arg2, 0x0A, FSS2)   - speed point 2
-	 * CreateByteField  (Arg2, 0x0C, FSS3)   - speed point 3
-	 * CreateByteField  (Arg2, 0x0E, FSS4)   - speed point 4
-	 * CreateByteField  (Arg2, 0x10, FSS5)   - speed point 5
-	 * CreateByteField  (Arg2, 0x12, FSS6)   - speed point 6
-	 * CreateByteField  (Arg2, 0x14, FSS7)   - speed point 7
-	 * CreateByteField  (Arg2, 0x16, FSS8)   - speed point 8
-	 * CreateByteField  (Arg2, 0x18, FSS9)   - speed point 9
-	 */
-	memset(buffer, 0, sizeof(buffer));
+	if (model->embedded_controller_id == 0x5508) {
+		/*
+		 * EC 0x5508 (ITE IT5508, Gen 10 Legion) requires a 64-byte
+		 * buffer with u16 LE speed values. Sending only 32 bytes
+		 * crashes the EC. Layout matches Windows Lenovo Legion Toolkit.
+		 *
+		 * Buffer layout (64 bytes):
+		 *   [0x00]       FSTM  - table validity flag (must be 1)
+		 *   [0x01]       FSID  - fan set ID (unused, 0)
+		 *   [0x02..0x05] FSTL  - table length (unused, 0)
+		 *   [0x06+i*2]   FSSn  - speed point n as u16 LE (i=0..9)
+		 *   remaining bytes zero-padded
+		 */
+		u8 buffer[0x40];
 
-	/* FSTM: table validity flag — Windows LLT sends 1, EC may ignore 0 */
-	buffer[0x00] = 1;
+		memset(buffer, 0, sizeof(buffer));
+		buffer[0x00] = 1; /* FSTM */
 
-	buffer[0x06] = fancurve->points[0].speed1;
-	buffer[0x08] = fancurve->points[1].speed1;
-	buffer[0x0A] = fancurve->points[2].speed1;
-	buffer[0x0C] = fancurve->points[3].speed1;
-	buffer[0x0E] = fancurve->points[4].speed1;
-	buffer[0x10] = fancurve->points[5].speed1;
-	buffer[0x12] = fancurve->points[6].speed1;
-	buffer[0x14] = fancurve->points[7].speed1;
-	buffer[0x16] = fancurve->points[8].speed1;
-	buffer[0x18] = fancurve->points[9].speed1;
+		for (i = 0; i < 10; i++) {
+			/*
+			 * Speed as u16 LE: low byte = speed1 (u8),
+			 * high byte = 0 (from memset). Matches Windows LLT.
+			 */
+			buffer[0x06 + i * 2] = fancurve->points[i].speed1;
+		}
 
-	err = wmi_exec_arg(WMI_GUID_LENOVO_FAN_METHOD, 0,
-			   WMI_METHOD_ID_FAN_SET_TABLE, buffer, sizeof(buffer));
+		/*
+		 * Clear FanFullSpeed before writing the fan table — writing
+		 * the table while FanFullSpeed is active can crash EC 0x5508.
+		 * Log on failure but don't abort; EC may already have it off.
+		 */
+		err = wmi_other_method_set_value(
+			OtherMethodFeature_FAN_FULL_SPEED, 0);
+		if (err)
+			pr_warn("legion-laptop: failed to clear FanFullSpeed before fan table write: %d\n",
+				err);
+
+		err = wmi_exec_arg(WMI_GUID_LENOVO_FAN_METHOD, 0,
+				   WMI_METHOD_ID_FAN_SET_TABLE,
+				   buffer, sizeof(buffer));
+	} else {
+		/*
+		 * Legacy 32-byte path for older ECs.
+		 *
+		 * WMAB method 6 (SET_TABLE) buffer layout from DSDT:
+		 *   [0x00]       FSTM  - table validity flag
+		 *   [0x01]       FSID  - fan set ID (unused)
+		 *   [0x02..0x05] FSTL  - table length (unused)
+		 *   [0x06]       FSS0  - speed point 0 (u8)
+		 *   [0x08]       FSS1  - speed point 1 (u8)
+		 *   ...stride 2, single-byte speed values...
+		 *   [0x18]       FSS9  - speed point 9 (u8)
+		 */
+		u8 buffer[0x20];
+
+		memset(buffer, 0, sizeof(buffer));
+		buffer[0x00] = 1; /* FSTM */
+
+		for (i = 0; i < 10; i++)
+			buffer[0x06 + i * 2] = fancurve->points[i].speed1;
+
+		err = wmi_exec_arg(WMI_GUID_LENOVO_FAN_METHOD, 0,
+				   WMI_METHOD_ID_FAN_SET_TABLE,
+				   buffer, sizeof(buffer));
+	}
+
 	return err;
 }
 
@@ -3577,11 +3622,20 @@ static ssize_t wmi_write_fanfullspeed(struct legion_private *priv, bool state)
 
 static ssize_t read_fanfullspeed(struct legion_private *priv, bool *state)
 {
+	int value;
+	int err;
+
 	switch (priv->conf->access_method_fanfullspeed) {
 	case ACCESS_METHOD_EC:
 		return ec_read_fanfullspeed(&priv->ecram, priv->conf, state);
 	case ACCESS_METHOD_WMI:
 		return wmi_read_fanfullspeed(priv, state);
+	case ACCESS_METHOD_WMI3:
+		err = wmi_other_method_get_value(
+			OtherMethodFeature_FAN_FULL_SPEED, &value);
+		if (!err)
+			*state = !!value;
+		return err;
 	default:
 		pr_info("No access method for fan full speed: %d\n",
 			priv->conf->access_method_fanfullspeed);
@@ -3596,6 +3650,9 @@ static ssize_t write_fanfullspeed(struct legion_private *priv, bool state)
 		return ec_write_fanfullspeed(&priv->ecram, priv->conf, state);
 	case ACCESS_METHOD_WMI:
 		return wmi_write_fanfullspeed(priv, state);
+	case ACCESS_METHOD_WMI3:
+		return wmi_other_method_set_value(
+			OtherMethodFeature_FAN_FULL_SPEED, state ? 1 : 0);
 	default:
 		pr_info("No access method for fan full speed: %d\n",
 			priv->conf->access_method_fanfullspeed);
@@ -4748,6 +4805,25 @@ static DEVICE_ATTR_RW(fan_fullspeed);
 static ssize_t fan_maxspeed_show(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
+	struct legion_private *priv = dev_get_drvdata(dev);
+
+	/*
+	 * Gamezone WMI (FAN_GET_MAXSPEED) can crash EC 0x5508.
+	 * Use OtherMethod FAN_FULL_SPEED as a safe equivalent.
+	 */
+	if (priv->conf->embedded_controller_id == 0x5508) {
+		int value;
+		int err;
+
+		mutex_lock(&priv->fancurve_mutex);
+		err = wmi_other_method_get_value(
+			OtherMethodFeature_FAN_FULL_SPEED, &value);
+		mutex_unlock(&priv->fancurve_mutex);
+		if (err)
+			return -EINVAL;
+		return sysfs_emit(buf, "%d\n", value);
+	}
+
 	return show_simple_wmi_attribute(dev, attr, buf,
 					 WMI_GUID_LENOVO_FAN_METHOD, 0,
 					 WMI_METHOD_ID_FAN_GET_MAXSPEED, false,
@@ -4758,6 +4834,28 @@ static ssize_t fan_maxspeed_store(struct device *dev,
 				  struct device_attribute *attr,
 				  const char *buf, size_t count)
 {
+	struct legion_private *priv = dev_get_drvdata(dev);
+
+	/*
+	 * Gamezone WMI (FAN_SET_MAXSPEED) can crash EC 0x5508.
+	 * Use OtherMethod FAN_FULL_SPEED as a safe equivalent.
+	 */
+	if (priv->conf->embedded_controller_id == 0x5508) {
+		unsigned int state;
+		int err;
+
+		err = kstrtouint(buf, 0, &state);
+		if (err)
+			return err;
+		mutex_lock(&priv->fancurve_mutex);
+		err = wmi_other_method_set_value(
+			OtherMethodFeature_FAN_FULL_SPEED, state);
+		mutex_unlock(&priv->fancurve_mutex);
+		if (err)
+			return -EINVAL;
+		return count;
+	}
+
 	return store_simple_wmi_attribute(dev, attr, buf, count,
 					  WMI_GUID_LENOVO_FAN_METHOD, 0,
 					  WMI_METHOD_ID_FAN_SET_MAXSPEED, false,
