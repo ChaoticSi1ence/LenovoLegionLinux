@@ -10,31 +10,15 @@
 </h1>
 
 [![Build](https://github.com/ChaoticSi1ence/LenovoLegionLinux/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/ChaoticSi1ence/LenovoLegionLinux/actions/workflows/build.yml)
-[![Join Discord](https://img.shields.io/discord/761178912230473768?label=Legion%20Series%20Discord)](https://discord.com/invite/legionseries)
-[![Check Reddit](https://img.shields.io/static/v1?label=Reddit&message=LenovoLegion&color=green)](https://www.reddit.com/r/LenovoLegion/)
 
 > **This is a fork of [johnfanv2/LenovoLegionLinux](https://github.com/johnfanv2/LenovoLegionLinux).**
 > It is optimized and tested for the **Lenovo Legion Pro 7 16IAX10H** (Q7CN, EC 0x5508) but includes
-> ~110 bug fixes across the entire codebase that benefit all supported models. If you have a different
-> Legion model, this fork should work for you too — and it may work better than upstream due to the
-> bug fixes. For distro-specific packages (AUR, Fedora COPR, NixOS, etc.), see the
-> [upstream project](https://github.com/johnfanv2/LenovoLegionLinux).
+> bug fixes across the entire codebase that benefit all supported models. If you have a different
+> Legion model, this fork should work for you too. For distro-specific packages (AUR, Fedora COPR,
+> NixOS, etc.), see the [upstream project](https://github.com/johnfanv2/LenovoLegionLinux).
+> **This fork is clone-and-build only.**
 
 **This project is not affiliated with Lenovo. Use at your own risk.**
-
----
-
-## Table of Contents
-
-- [What's New in This Fork](#whats-new-in-this-fork)
-- [Tested Hardware](#tested-hardware)
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [Usage](#usage)
-- [Hardware Test Script](#hardware-test-script)
-- [Known Limitations](#known-limitations)
-- [FAQ](#faq)
-- [Credits](#credits)
 
 ---
 
@@ -45,7 +29,9 @@
 - Full model configuration with **WMI3 access methods** for all hardware interfaces
 - **3-fan support**: CPU (fan ID 1), GPU (fan ID 2), Auxiliary (fan ID 4) — non-sequential IDs correctly mapped
 - **5 power modes**: Quiet (1), Balanced (2), Performance (3), Custom (255), **Extreme (224/0xE0)**
-- Extreme mode validated with live hardware writes
+- **64-byte WMI fan curve buffer** for EC 0x5508 (32-byte crashes the EC)
+- **OtherMethod routing** for fan_fullspeed/fan_maxspeed (Gamezone WMI crashes EC 0x5508)
+- **FanFullSpeed safety clear** before fan table writes
 
 ### Safety Mechanisms
 
@@ -61,7 +47,7 @@
   sudo modprobe legion-laptop
   ```
 
-### Bug Fixes (~110 across 50 files)
+### Bug Fixes
 
 These fixes apply to the entire driver, not just Q7CN:
 
@@ -71,13 +57,7 @@ These fixes apply to the entire driver, not just Q7CN:
 - Fixed copy-paste GUID bugs in WMI method calls
 - Fixed LED `container_of` type mismatches
 - Fixed WMI notify race conditions
-- Added `wmi_other_method_set_value()` for OtherMethod GUID (method 18)
 - Code polish: checkpatch-compliant comments, GUID case consistency, dead code removal
-
-### Build and Test Infrastructure
-
-- **`kernel_module/build-legion-module.sh`** — build, install, blacklist conflicting upstream modules, load — all in one script
-- **`tests/test_hardware_q7cn.sh`** — 18-section hardware validation suite with `--wmi-dryrun`, `--test-extreme`, and `--install-blacklist` flags
 
 ---
 
@@ -132,38 +112,25 @@ EC direct reads give wrong values on this platform; WMI3 access methods required
 ### Other Supported Models
 
 All models supported by the [upstream project](https://github.com/johnfanv2/LenovoLegionLinux#pushpin-confirmed-compatible-models)
-should also work with this fork. The ~110 bug fixes apply to the shared codebase and may improve
-stability on other hardware. If you test this fork on a different model, please open an issue with
-your results.
+should also work with this fork. Bug fixes apply to the shared codebase and may improve stability
+on other hardware. If you test this fork on a different model, please open an issue with your results.
 
 ---
 
 ## Features
 
-Lenovo Legion Linux is the Linux alternative to Lenovo Vantage / Legion Zone (Windows only).
-It provides a kernel module with standard Linux interfaces (sysfs, debugfs, hwmon) and a Python
-GUI/CLI for configuration.
+The kernel module (`legion-laptop.ko`) provides standard Linux interfaces (sysfs, debugfs, hwmon)
+for hardware control:
 
 - **Fan curve control** — up to 10 points using CPU, GPU, and IC temperatures simultaneously.
-  Set speed (RPM or PWM), acceleration/deceleration, and hysteresis per point. Allows speeds
-  below 1600 RPM for quiet operation.
-- **Power mode switching** — Quiet, Balanced, Performance, Custom, and Extreme modes via software.
-  Integrates with `power-profiles-daemon` and desktop environment settings.
+  Set speed (RPM or PWM), acceleration/deceleration, and hysteresis per point.
+- **Power mode switching** — Quiet, Balanced, Performance, Custom, and Extreme modes via sysfs.
+  Integrates with `power-profiles-daemon` when `enable_platformprofile=true`.
 - **Temperature and fan monitoring** — CPU, GPU, IC temperatures and fan RPMs via standard hwmon,
-  compatible with tools like `sensors`, `psensor`, and any hwmon-aware application.
-- **Battery conservation mode** — keep battery at ~60% when on AC to prolong battery life.
-- **Fn lock** — use special functions on F1-F12 without holding Fn.
-- **Touchpad toggle**, **camera power**, **USB charging**, **display overdrive**, **G-Sync toggle**
-- **Y-Logo and IO-Port LED control** (model dependent)
+  compatible with `sensors`, `psensor`, and any hwmon-aware application.
+- **Battery conservation mode** — keep battery at ~60% when on AC (via `ideapad-laptop`).
+- **Touchpad toggle**, **display overdrive**, **G-Sync toggle**, **Windows key lock**
 - **Fan controller lock/unlock** — freeze fan speed at current level
-- **Mini fan curve** — automatic low-noise curve when temperatures stay cool (model dependent)
-- **Automatic fan profile switching** via the `legiond` daemon based on power mode and AC/battery state
-
-<p align="center">
-    <img height="300" style="float: center;" src="doc/assets/fancurve_gui.jpg" alt="fancurve">
-    <img height="300" style="float: center;" src="doc/assets/psensor.png" alt="psensor">
-    <img height="300" style="float: center;" src="doc/assets/powermode.png" alt="powermode">
-</p>
 
 ---
 
@@ -172,21 +139,11 @@ GUI/CLI for configuration.
 ### Requirements
 
 You need standard kernel build tools: `make`, `gcc` or `clang`, and `linux-headers` for your
-running kernel. For the Python GUI, you also need `python3-pyqt6`, `python3-yaml`, and
-`python3-argcomplete`.
-
-Distribution-specific dependency scripts are in [`deploy/dependencies/`](deploy/dependencies/).
-For example, on Ubuntu 24.04:
+running kernel.
 
 ```bash
-./deploy/dependencies/install_dependencies_ubuntu_24_04.sh
-./deploy/dependencies/install_development_dependencies_ubuntu_24_04.sh
-```
-
-On Arch-based distributions:
-
-```bash
-sudo pacman -S linux-headers base-devel lm_sensors python-pyqt6 python-yaml python-argcomplete
+# Arch/CachyOS
+sudo pacman -S linux-headers base-devel lm_sensors
 ```
 
 ### Build and Install
@@ -213,8 +170,7 @@ sudo depmod -a
 sudo modprobe legion-laptop
 ```
 
-You must rebuild and reinstall after each kernel update. For automatic rebuilds, consider
-[DKMS](https://github.com/johnfanv2/LenovoLegionLinux#installing-via-dkms) (see upstream docs).
+You must rebuild and reinstall after each kernel update.
 
 ### Blacklisting Conflicting Modules
 
@@ -310,42 +266,17 @@ sudo cat /sys/kernel/debug/legion/fancurve
 
 Changing power mode with Fn+Q or restarting resets the fan curve to firmware defaults.
 
-### GUI and CLI
-
-The Python GUI provides a graphical interface for fan curve editing, power mode switching,
-and all other features:
-
-```bash
-sudo python3 python/legion_linux/legion_linux/legion_gui.py
-```
-
-The CLI provides the same functionality for scripting:
-
-```bash
-sudo python3 python/legion_linux/legion_linux/legion_cli.py --help
-```
-
-### Other Features
+### Other Sysfs Attributes
 
 | Feature | Sysfs Path | Notes |
 |---------|-----------|-------|
-| Battery conservation | `ideapad/conservation_mode` | Keep battery at ~60% on AC |
-| Fn lock | `ideapad/fn_lock` | Also toggled with Fn+Esc |
 | Touchpad | `legion/touchpad` | Also toggled with Fn+F10 |
-| Camera power | `ideapad/camera_power` | |
-| USB charging | `ideapad/usb_charging` | Always-on USB when lid closed |
 | Display overdrive | `legion/overdrive` | |
 | G-Sync / Hybrid mode | `legion/gsync` | |
 | Windows key | `legion/winkey` | |
 | Fan full speed | `legion/fan_fullspeed` | Dust cleaning mode |
-
-Note: `conservation_mode`, `fn_lock`, `camera_power`, and `usb_charging` are provided by the
-`ideapad-laptop` module, not `legion-laptop`.
-
-### Lenovo Legion Support Daemon (legiond)
-
-The `legiond` daemon automatically switches fan profiles based on power mode and AC/battery state.
-See [`extra/service/legiond/README.org`](extra/service/legiond/README.org) for configuration.
+| Fan max speed | `legion/fan_maxspeed` | |
+| Rapid charge | `legion/rapidcharge` | |
 
 ---
 
@@ -388,7 +319,7 @@ attributes, power mode read/write, WMI GUID presence, debugfs, and dry-run write
 - Fan curve size cannot be changed (10 points in Performance, 9 otherwise). Disable unused
   points by setting temperature limits to 127.
 - The fan curve resets when changing power mode (Fn+Q) or restarting.
-- The module must be rebuilt after each kernel update (unless using DKMS).
+- The module must be rebuilt after each kernel update.
 
 ---
 
@@ -417,8 +348,7 @@ Write `0` to unlock it. A BIOS update/reset can also fix this.
 
 **It stopped working after a kernel update**
 
-Rebuild and reinstall the module. See [Build and Install](#build-and-install). Consider using
-DKMS for automatic rebuilds.
+Rebuild and reinstall the module. See [Build and Install](#build-and-install).
 
 **USB-C PD charging doesn't work or drops to trickle charge (Gen 10)**
 
@@ -463,11 +393,6 @@ project that made Linux support for Legion laptops possible.
 - [Luke Cama](https://www.legionfancontrol.com/) — [LegionFanControl](https://www.legionfancontrol.com/)
 - David Woodhouse — the [ideapad-laptop](https://github.com/torvalds/linux/blob/master/drivers/platform/x86/ideapad-laptop.c)
   kernel driver
-
-### Community Tools
-
-- [PlasmaVantage](https://gitlab.com/Scias/plasmavantage) — KDE Plasma widget for LenovoLegionLinux
-- [CinnamonVantage](https://github.com/linuxmint/cinnamon-spices-applets/tree/master/cinnamonvantage%40garlayntoji) — Cinnamon applet for LenovoLegionLinux
 
 ---
 
