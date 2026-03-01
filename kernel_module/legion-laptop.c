@@ -5036,6 +5036,40 @@ static struct attribute *legion_sysfs_attributes[] = {
 	NULL
 };
 
+/*
+ * Attributes that are non-functional on Gen 10 IT5508 EC (Q7CN/SMCN).
+ * These WMI methods either return -EINVAL, return garbage, or silently
+ * ignore writes. Hide them so users don't see broken controls.
+ *
+ * Gamezone WMI: gsync, overdrive, thermalmode, powerchargemode,
+ *               cpumaxfrequency, igpumode (writes ignored or garbage reads)
+ * CPU WMI:      cpu_oc, cpu_*_powerlimit (reads fail with -EINVAL or return 0)
+ * GPU WMI:      gpu_oc, gpu_* (reads fail with -EINVAL)
+ */
+static const struct attribute *it5508_broken_attrs[] = {
+	&dev_attr_gsync.attr,
+	&dev_attr_overdrive.attr,
+	&dev_attr_thermalmode.attr,
+	&dev_attr_powerchargemode.attr,
+	&dev_attr_cpumaxfrequency.attr,
+	&dev_attr_igpumode.attr,
+	&dev_attr_cpu_oc.attr,
+	&dev_attr_cpu_shortterm_powerlimit.attr,
+	&dev_attr_cpu_longterm_powerlimit.attr,
+	&dev_attr_cpu_default_powerlimit.attr,
+	&dev_attr_cpu_peak_powerlimit.attr,
+	&dev_attr_cpu_apu_sppt_powerlimit.attr,
+	&dev_attr_cpu_cross_loading_powerlimit.attr,
+	&dev_attr_gpu_oc.attr,
+	&dev_attr_gpu_ppab_powerlimit.attr,
+	&dev_attr_gpu_ctgp_powerlimit.attr,
+	&dev_attr_gpu_ctgp2_powerlimit.attr,
+	&dev_attr_gpu_default_ppab_ctrgp_powerlimit.attr,
+	&dev_attr_gpu_temperature_limit.attr,
+	&dev_attr_gpu_boost_clock.attr,
+	NULL
+};
+
 static umode_t legion_sysfs_is_visible(struct kobject *kobj,
 				       struct attribute *attr, int idx)
 {
@@ -5045,7 +5079,17 @@ static umode_t legion_sysfs_is_visible(struct kobject *kobj,
 	if (priv->conf->fan_fullspeed_unsupported &&
 	    (attr == &dev_attr_fan_fullspeed.attr ||
 	     attr == &dev_attr_fan_maxspeed.attr))
-		return 0; /* hide attribute */
+		return 0;
+
+	/* Hide broken attributes on Gen 10 IT5508 EC models */
+	if (priv->conf->fancurve_wmi_64byte) {
+		const struct attribute **p;
+
+		for (p = it5508_broken_attrs; *p; p++) {
+			if (attr == *p)
+				return 0;
+		}
+	}
 
 	return attr->mode;
 }
