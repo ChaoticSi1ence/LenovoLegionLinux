@@ -185,6 +185,21 @@ ls /etc/udev/rules.d/99-legion-ppd-restart.rules
 # If missing, re-run: sudo bash kernel_module/build-legion-module.sh
 ```
 
+**Without PPD:**
+
+If you don't use `power-profiles-daemon` (e.g., minimal WM setups, i3, sway without PPD), the
+driver still works — you just won't get desktop slider integration. The `platform_profile` sysfs
+interface is still available for manual control, and Fn+Q still cycles firmware modes:
+
+```bash
+# Manual control without PPD
+cat /sys/firmware/acpi/platform_profile_choices    # quiet balanced performance
+echo performance | sudo tee /sys/firmware/acpi/platform_profile
+```
+
+The udev rule installed by the build script is harmless without PPD (it tries to restart a
+service that doesn't exist and silently fails).
+
 ---
 
 ## Quick Start
