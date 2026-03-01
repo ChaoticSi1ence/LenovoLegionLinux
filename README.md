@@ -28,7 +28,9 @@
 
 - Full model configuration with **WMI3 access methods** for all hardware interfaces
 - **3-fan support**: CPU (fan ID 1), GPU (fan ID 2), Auxiliary (fan ID 4) — non-sequential IDs correctly mapped
-- **5 power modes**: Quiet (1), Balanced (2), Performance (3), Custom (255), **Extreme (224/0xE0)**
+- **3 power modes**: Quiet (1), Balanced (2), Performance (3) — fully working via PPD, Fn+Q, and sysfs.
+  Extreme (224/0xE0) is available via direct sysfs write only. Custom (255) is **blocked by default**
+  (causes hard shutdown on Q7CN/SMCN firmware).
 - **64-byte WMI fan curve buffer** for EC 0x5508 (32-byte crashes the EC)
 - **FanFullSpeed safety clear** before fan table writes
 - **22 broken sysfs attributes hidden** — Gamezone, CPU, and GPU WMI methods that are non-functional
@@ -74,7 +76,7 @@ These fixes apply to the entire driver, not just Q7CN:
 | CPU | Intel Core Ultra 9 275HX |
 | GPU | NVIDIA RTX 5090 Laptop GPU |
 | RAM | 32 GB |
-| Test Kernel | CachyOS 6.19.3-2-cachyos |
+| Test Kernel | CachyOS 6.19.5-3-cachyos |
 | Test Results | **PASS 46/46** (live), **PASS 56/56** (dry-run), **0 FAILs** |
 
 ### Hwmon Interface
@@ -150,14 +152,16 @@ for hardware control:
 
 - **Fan curve control** — up to 10 points using CPU, GPU, and IC temperatures simultaneously.
   Set speed (RPM or PWM), acceleration/deceleration, and hysteresis per point.
-- **Power mode switching** — Quiet, Balanced, Performance, Custom, and Extreme modes.
-  Integrates with `power-profiles-daemon` (PPD) so KDE/GNOME power sliders control firmware
-  thermal modes directly. See [Power Profile Integration](#power-profile-integration-ppd).
+- **Power mode switching** — Quiet, Balanced, Performance via PPD, Fn+Q, or sysfs.
+  Extreme mode available via direct sysfs write. Custom mode (255) is blocked by default on
+  Q7CN/SMCN (causes hard shutdown). See [Power Profile Integration](#power-profile-integration-ppd).
 - **Temperature and fan monitoring** — CPU, GPU, IC temperatures and fan RPMs via standard hwmon,
   compatible with `sensors`, `psensor`, and any hwmon-aware application.
-- **Battery conservation mode** — keep battery at ~60% when on AC (via `ideapad-laptop`).
-- **Touchpad toggle**, **Windows key lock**, **rapid charge toggle**
-- **Fan controller lock/unlock** — freeze fan speed at current level
+- **Battery conservation mode** — keep battery at ~55-60% when on AC. Provided by the
+  `ideapad-laptop` kernel module (loaded automatically). See [Usage](#battery-and-charging).
+- **Rapid charge** — fast-charge the battery. Provided by `legion-laptop`. Mutually exclusive with
+  conservation mode. See [Usage](#battery-and-charging).
+- **Touchpad toggle**, **Windows key lock**, **fan controller lock/unlock** — see [Usage](#other-controls).
 - Note: Display overdrive, G-Sync, and iGPU mode toggles are non-functional on Gen 10 IT5508 EC
   models and are automatically hidden from sysfs. They may work on older models.
 
@@ -329,14 +333,26 @@ which uses PPD and platform_profile. See [Power Profile Integration](#power-prof
 You can also toggle modes with **Fn+Q** on the keyboard, or use the command line:
 
 ```bash
-# Via PPD (recommended)
-powerprofilesctl set performance
+LEGION=/sys/bus/platform/drivers/legion/PNP0C09:00
+
+# Via PPD (recommended — maps to desktop power slider)
+powerprofilesctl set performance    # Performance (3)
+powerprofilesctl set balanced       # Balanced (2)
+powerprofilesctl set power-saver    # Quiet (1)
 
 # Via sysfs (direct)
-cat /sys/bus/platform/drivers/legion/PNP0C09:00/powermode
-# Values: 1=Quiet, 2=Balanced, 3=Performance, 255=Custom, 224=Extreme
-echo 3 | sudo tee /sys/bus/platform/drivers/legion/PNP0C09:00/powermode
+cat $LEGION/powermode
+echo 1 | sudo tee $LEGION/powermode    # Quiet
+echo 2 | sudo tee $LEGION/powermode    # Balanced
+echo 3 | sudo tee $LEGION/powermode    # Performance
+
+# Extreme mode (not available via PPD or Fn+Q — direct sysfs only)
+echo 224 | sudo tee $LEGION/powermode  # Extreme (0xE0)
 ```
+
+**Warning:** Custom mode (255) is **blocked by default** on Q7CN/SMCN — it causes an immediate
+hard power-off. Do not override the `allow_custom_mode` module parameter unless you have confirmed
+your firmware supports it.
 
 ### Fan Curve
 
@@ -357,14 +373,76 @@ sudo cat /sys/kernel/debug/legion/fancurve
 
 Changing power mode with Fn+Q or restarting resets the fan curve to firmware defaults.
 
-### Other Sysfs Attributes
+### Battery and Charging
 
-| Feature | Sysfs Path | Notes |
-|---------|-----------|-------|
-| Touchpad | `legion/touchpad` | Also toggled with Fn+F10 |
-| Windows key lock | `legion/winkey` | 0=disabled, 1=enabled |
-| Rapid charge | `legion/rapidcharge` | 0=off, 1=on |
-| Lock fan controller | `legion/lockfancontroller` | 0=unlocked, 1=locked |
+The base path for `legion-laptop` attributes:
+
+```bash
+LEGION=/sys/bus/platform/drivers/legion/PNP0C09:00
+```
+
+**Conservation mode** limits charging to ~55-60% to extend battery lifespan. This is provided by
+the `ideapad-laptop` module (loaded automatically on Legion hardware), not `legion-laptop`:
+
+```bash
+IDEAPAD=/sys/bus/platform/drivers/ideapad_acpi/VPC2004:00
+
+# Read current state (0=off, 1=on)
+cat $IDEAPAD/conservation_mode
+
+# Enable — stops charging, caps battery at ~55-60%
+echo 1 | sudo tee $IDEAPAD/conservation_mode
+
+# Disable — resumes normal charging to 100%
+echo 0 | sudo tee $IDEAPAD/conservation_mode
+
+# Check battery status (should show "Not charging" when conservation is on)
+cat /sys/class/power_supply/BAT0/status
+```
+
+**Rapid charge** enables fast charging. Provided by `legion-laptop`. Conservation mode and rapid
+charge should not be enabled simultaneously — disable one before enabling the other:
+
+```bash
+# Read current state (0=off, 1=on)
+cat $LEGION/rapidcharge
+
+# Enable rapid charge
+echo 1 | sudo tee $LEGION/rapidcharge
+
+# Disable rapid charge
+echo 0 | sudo tee $LEGION/rapidcharge
+```
+
+### Other Controls
+
+```bash
+LEGION=/sys/bus/platform/drivers/legion/PNP0C09:00
+```
+
+**Touchpad** — also toggled with Fn+F10:
+
+```bash
+cat $LEGION/touchpad              # Read (0=disabled, 1=enabled)
+echo 0 | sudo tee $LEGION/touchpad   # Disable
+echo 1 | sudo tee $LEGION/touchpad   # Enable
+```
+
+**Windows key lock** — disable the Windows/Super key (useful in games):
+
+```bash
+cat $LEGION/winkey                # Read (0=disabled, 1=enabled)
+echo 0 | sudo tee $LEGION/winkey     # Disable Windows key
+echo 1 | sudo tee $LEGION/winkey     # Enable Windows key
+```
+
+**Fan controller lock** — freeze fans at their current speed:
+
+```bash
+cat $LEGION/lockfancontroller     # Read (0=unlocked, 1=locked)
+echo 1 | sudo tee $LEGION/lockfancontroller  # Lock fans at current speed
+echo 0 | sudo tee $LEGION/lockfancontroller  # Unlock (return to automatic)
+```
 
 Note: On Gen 10 IT5508 models (Q7CN/SMCN), the driver automatically hides 22 non-functional
 attributes. See [Tested Hardware](#sysfs-attributes-q7cn-hardware-tested) for the full breakdown.
