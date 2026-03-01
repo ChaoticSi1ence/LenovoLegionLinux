@@ -18,9 +18,6 @@ obj-m += legion-laptop.o
 all:
 	$(MAKE) -C $(KSRC) M=$(shell pwd) $(if $(LLVM),LLVM=$(LLVM)) modules
 
-moduleInContainer:
-	docker run -it --rm -v "$(shell pwd)":/kernel_module -w /kernel_module  -v /usr/src/:/usr/src/  -v /lib/modules/:/lib/modules gcc:12.2.0 bash
-
 allWarn:
 	$(MAKE) -C $(KSRC) M=$(shell pwd) $(if $(LLVM),LLVM=$(LLVM)) KCFLAGS=-W modules
 
@@ -38,41 +35,6 @@ uninstall:
 	@rm -f $(INSTALLDIR)/legion-laptop.ko
 	@depmod --all
 	@printf "%s\n" "Uninstall finished."
-
-install_forcereload:
-	make install
-	make forcereloadmodule
-	bash -c "./issue-warning.sh"
-
-reloadmodule:
-	rmmod legion-laptop.ko || true
-	insmod legion-laptop.ko
-	dmesg --ctime
-	bash -c "./issue-warning.sh"
-
-forcereloadmodule:
-	rmmod legion-laptop.ko || true
-	insmod legion-laptop.ko force=1
-	dmesg --ctime
-	bash -c "./issue-warning.sh"
-
-forcereloadmodulereadonly:
-	rmmod legion-laptop.ko || true
-	insmod legion-laptop.ko force=1 ec_readonly=1
-	dmesg --ctime
-	bash -c "./issue-warning.sh"
-
-reloadmodule_disableplatformprofile:
-	rmmod legion-laptop.ko || true
-	insmod legion-laptop.ko enable_platformprofile=0
-	dmesg --ctime
-	bash -c "./issue-warning.sh"
-
-forcereloadmodule_disableplatformprofile:
-	rmmod legion-laptop.ko || true
-	insmod legion-laptop.ko force=1 enable_platformprofile=0
-	dmesg --ctime
-	bash -c "./issue-warning.sh"
 
 dkms: all
 	dkms remove -m LenovoLegionLinux -v $(DKMS_VERSION) -k $(KERNELVERSION) 2>/dev/null || true
