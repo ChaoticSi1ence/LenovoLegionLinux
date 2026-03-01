@@ -24,11 +24,12 @@
 set -euo pipefail
 
 # Clean up temp build dir on exit
-cleanup() { rm -rf /tmp/km_build; }
+KM_BUILD=""
+cleanup() { [ -n "$KM_BUILD" ] && rm -rf "$KM_BUILD"; }
 trap cleanup EXIT
 
 # === Auto-tee to log file ===
-LOG_FILE="/tmp/legion-test-$(date +%Y%m%d-%H%M%S).log"
+LOG_FILE="$(mktemp /tmp/legion-test-XXXXXX.log)"
 if [ -z "${LEGION_TEST_LOGGING:-}" ]; then
     export LEGION_TEST_LOGGING=1
     exec > >(tee "$LOG_FILE") 2>&1
@@ -37,7 +38,7 @@ fi
 # === Configuration ===
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KM_SRC="${REPO_ROOT}/kernel_module"
-KM_BUILD="/tmp/km_build"
+KM_BUILD="$(mktemp -d /tmp/km_build.XXXXXX)"
 MODULE_NAME="legion-laptop"
 MODULE_KO="${KM_BUILD}/${MODULE_NAME}.ko"
 BLACKLIST_FILE="/etc/modprobe.d/blacklist-lenovo-wmi.conf"
@@ -303,7 +304,7 @@ if [ "$SKIP_BUILD" = true ]; then
     fi
 else
     info "Building kernel module..."
-    rm -rf "$KM_BUILD"
+    rm -rf "${KM_BUILD:?}"
     cp -r "$KM_SRC" "$KM_BUILD"
 
     BUILD_OUTPUT=$(make -C "$KM_BUILD" 2>&1)

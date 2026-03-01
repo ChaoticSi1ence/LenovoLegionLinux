@@ -10,4 +10,4 @@
 #
 # Installed by build-legion-module.sh or scripts/enable-kde-power-profiles.sh.
 
-ACTION=="add", SUBSYSTEM=="platform-profile", RUN+="/usr/bin/systemctl restart power-profiles-daemon.service"
+ACTION=="add", SUBSYSTEM=="platform-profile", ATTR{name}=="lenovo-legion", RUN+="/usr/bin/systemctl --no-block restart power-profiles-daemon.service"

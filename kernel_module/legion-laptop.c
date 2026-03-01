@@ -2671,6 +2671,13 @@ static int set_simple_wmi_attribute(struct legion_private *priv,
 		return -EINVAL;
 	}
 
+	/* Reject negative values and clamp to u8 range after scaling */
+	if (state < 0) {
+		pr_info("Rejecting negative value %d for WMI attribute\n",
+			state);
+		return -EINVAL;
+	}
+
 	if (invert)
 		state = !state;
 
@@ -3900,6 +3907,11 @@ static int acpi_write_rapidcharge(struct acpi_device *adev, bool state)
 	unsigned long fct_nr = state > 0 ? FCT_RAPID_CHARGE_ON :
 					   FCT_RAPID_CHARGE_OFF;
 
+	if (ec_readonly) {
+		pr_info("Skip ACPI SBMC rapid charge write: ec_readonly=1\n");
+		return 0;
+	}
+
 	err = exec_sbmc(adev->handle, fct_nr);
 	return err;
 }
@@ -3974,6 +3986,12 @@ static int legion_wmi_light_set(struct legion_private *priv, u8 light_id,
 	u8 in_buffer_param[8];
 	unsigned long result;
 	int err;
+
+	if (wmi_dryrun) {
+		pr_info("Skip WMI light set (light_id=%u, brightness=%u): wmi_dryrun=1\n",
+			light_id, brightness);
+		return 0;
+	}
 
 	buffer.length = 3;
 	buffer.pointer = &in_buffer_param[0];
@@ -4374,10 +4392,10 @@ static ssize_t rapidcharge_store(struct device *dev,
 				 size_t count)
 {
 	struct legion_private *priv = dev_get_drvdata(dev);
-	unsigned int state;
+	bool state;
 	int err;
 
-	err = kstrtouint(buf, 0, &state);
+	err = kstrtobool(buf, &state);
 	if (err)
 		return err;
 
@@ -4889,10 +4907,10 @@ static ssize_t fan_maxspeed_store(struct device *dev,
 	 * OtherMethod FAN_FULL_SPEED as a safe equivalent.
 	 */
 	if (priv->conf->access_method_fanfullspeed == ACCESS_METHOD_WMI3) {
-		unsigned int state;
+		bool state;
 		int err;
 
-		err = kstrtouint(buf, 0, &state);
+		err = kstrtobool(buf, &state);
 		if (err)
 			return err;
 		mutex_lock(&priv->fancurve_mutex);
@@ -4940,6 +4958,9 @@ static ssize_t powermode_store(struct device *dev,
 	struct legion_private *priv = dev_get_drvdata(dev);
 	unsigned int powermode;
 	int err;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
+	struct device *ppdev;
+#endif
 
 	err = kstrtouint(buf, 0, &powermode);
 	if (err)
@@ -4947,16 +4968,21 @@ static ssize_t powermode_store(struct device *dev,
 
 	mutex_lock(&priv->fancurve_mutex);
 	err = write_powermode(priv, powermode);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
+	/* Copy ppdev under lock — module could unload during sleep */
+	ppdev = priv->ppdev;
+#endif
 	mutex_unlock(&priv->fancurve_mutex);
 	if (err)
 		return -EINVAL;
 
-	// we have to wait a bit before change is done in hardware and
-	// readback done after notifying returns correct value, otherwise
-	// the notified reader will read old value
+	/*
+	 * Wait for hardware to complete the mode change before notifying,
+	 * otherwise readers will see the old power mode value.
+	 */
 	msleep(500);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
-	legion_platform_profile_notify(priv->ppdev);
+	legion_platform_profile_notify(ppdev);
 #else
 	legion_platform_profile_notify();
 #endif
@@ -5043,6 +5069,9 @@ static void legion_wmi_notify(struct wmi_device *wdev, union acpi_object *data)
 {
 	struct legion_wmi_private *wpriv;
 	struct legion_private *priv;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
+	struct device *ppdev;
+#endif
 
 	mutex_lock(&legion_shared_mutex);
 	priv = legion_shared;
@@ -5051,6 +5080,11 @@ static void legion_wmi_notify(struct wmi_device *wdev, union acpi_object *data)
 		mutex_unlock(&legion_shared_mutex);
 		return;
 	}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
+	/* Copy ppdev under lock — priv may be torn down during the sleep */
+	ppdev = priv->ppdev;
+#endif
 
 	wpriv = dev_get_drvdata(&wdev->dev);
 	switch (wpriv->event) {
@@ -5066,12 +5100,13 @@ static void legion_wmi_notify(struct wmi_device *wdev, union acpi_object *data)
 	}
 
 	mutex_unlock(&legion_shared_mutex);
-	// TODO: fix that!
-	// problem: we get an event just before the powermode change (from the key?),
-	// so if we notify too early, it will read the old power mode/platform profile
+	/*
+	 * We get an event just before the powermode change (from the key),
+	 * so if we notify too early, it will read the old power mode.
+	 */
 	msleep(500);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
-	legion_platform_profile_notify(priv->ppdev);
+	legion_platform_profile_notify(ppdev);
 #else
 	legion_platform_profile_notify();
 #endif
@@ -6575,9 +6610,11 @@ static void legion_remove(struct platform_device *pdev)
 	legion_wmi_exit();
 	legion_platform_profile_exit(priv);
 
-	// toggle power mode to load default setting from embedded controller
-	// again
-	toggle_powermode(priv);
+	/* Toggle power mode to load default setting from EC again.
+	 * Skip in read-only/dry-run modes to avoid hardware writes.
+	 */
+	if (!ec_readonly && !wmi_dryrun)
+		toggle_powermode(priv);
 
 	legion_hwmon_exit(priv);
 	legion_sysfs_exit(priv);

@@ -9,7 +9,6 @@ endif
 
 #install dir for kernel drivers
 INSTALLDIR := /lib/modules/$(KERNELVERSION)/kernel/drivers/platform/x86
-MODDESTDIR := /lib/modules/$(KERNELVERSION)/kernel/drivers/platform/x86
 DKMS_VERSION := 0.1.0
 DKMSDIR := /usr/src/LenovoLegionLinux-$(DKMS_VERSION)
 
@@ -26,9 +25,9 @@ clean:
 
 install: all
 	@rm --force --verbose $(INSTALLDIR)/legion-laptop.ko
-	@mkdir --parent --verbose $(MODDESTDIR)
-	@install --preserve-timestamps -D --mode=644 *.ko $(INSTALLDIR)
-	@depmod --all $(KVER)
+	@mkdir --parent --verbose $(INSTALLDIR)
+	@install --preserve-timestamps -D --mode=644 legion-laptop.ko $(INSTALLDIR)
+	@depmod --all $(KERNELVERSION)
 	@printf "%s\n" "Installation finished."
 
 uninstall:

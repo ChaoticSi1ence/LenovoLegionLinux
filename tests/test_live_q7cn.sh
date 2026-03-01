@@ -25,11 +25,21 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-LOG="/tmp/legion-live-test-$(date +%Y%m%d-%H%M%S).log"
+LOG="$(mktemp /tmp/legion-live-test-XXXXXX.log)"
 exec > >(tee "$LOG") 2>&1
 
 # === Paths ===
 SYSFS="/sys/bus/platform/drivers/legion/PNP0C09:00"
+ORIGINAL_PM_FOR_TRAP=""
+
+# Restore power mode on unexpected exit (Ctrl+C, set -e failure, etc.)
+cleanup_powermode() {
+    if [ -n "$ORIGINAL_PM_FOR_TRAP" ] && [ -f "$SYSFS/powermode" ]; then
+        echo "$ORIGINAL_PM_FOR_TRAP" > "$SYSFS/powermode" 2>/dev/null || true
+        echo "Restored powermode to $ORIGINAL_PM_FOR_TRAP on exit" >&2
+    fi
+}
+trap cleanup_powermode EXIT INT TERM
 DEBUGFS="/sys/kernel/debug/legion"
 HWMON=""
 PASS=0
@@ -238,6 +248,7 @@ fi
 divider "9. Power Mode Cycling (Quiet -> Balanced -> Performance)"
 
 ORIGINAL_PM=$(read_or_na "$SYSFS/powermode")
+ORIGINAL_PM_FOR_TRAP="$ORIGINAL_PM"
 value "Starting powermode" "$ORIGINAL_PM"
 
 MODES="1:Quiet 2:Balanced 3:Performance"
@@ -306,6 +317,7 @@ FINAL_PM=$(read_or_na "$SYSFS/powermode")
 
 if [ "$RESTORE_OK" = true ] && [ "$FINAL_PM" = "$ORIGINAL_PM" ]; then
     pass "Restored to original powermode $ORIGINAL_PM"
+    ORIGINAL_PM_FOR_TRAP=""  # Clear trap — restore succeeded
 else
     fail "Failed to restore powermode (wanted $ORIGINAL_PM, got $FINAL_PM)"
 fi

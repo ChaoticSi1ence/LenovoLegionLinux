@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eu
 
 # Legion Fan Curve Example Script
 #
@@ -20,6 +20,13 @@ set -e
 #   sudo ./setmyfancurve.sh
 #
 # To restore defaults, press Fn+Q to toggle power mode.
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "ERROR: Must run as root (sudo)." >&2
+    exit 1
+fi
+
+trap 'echo ""; echo "WARNING: Script interrupted. Fan curve may be incomplete." >&2; echo "Press Fn+Q to reset fan curve to defaults." >&2' INT TERM
 
 echo "=== Legion Fan Curve Writer ==="
 echo ""
