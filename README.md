@@ -30,8 +30,9 @@
 - **3-fan support**: CPU (fan ID 1), GPU (fan ID 2), Auxiliary (fan ID 4) — non-sequential IDs correctly mapped
 - **5 power modes**: Quiet (1), Balanced (2), Performance (3), Custom (255), **Extreme (224/0xE0)**
 - **64-byte WMI fan curve buffer** for EC 0x5508 (32-byte crashes the EC)
-- **OtherMethod routing** for fan_fullspeed/fan_maxspeed (Gamezone WMI crashes EC 0x5508)
 - **FanFullSpeed safety clear** before fan table writes
+- **22 broken sysfs attributes hidden** — Gamezone, CPU, and GPU WMI methods that are non-functional
+  on IT5508 EC are automatically hidden via `is_visible` so only working controls are exposed
 
 ### Safety Mechanisms
 
@@ -88,10 +89,35 @@ These fixes apply to the entire driver, not just Q7CN:
 | fan3 RPM (Aux) | WMI OtherMethod | Working |
 | Fan curve (10 points, unified) | WMI FanMethod | Read + write working |
 
-### Sysfs Attributes
+### Sysfs Attributes (Q7CN Hardware-Tested)
 
-All readable and writable: `powermode`, `rapidcharge`, `touchpad`, `fan_fullspeed`, `fan_maxspeed`,
-`lockfancontroller`, `overdrive`, `gsync`, `winkey`, `igpumode`
+Every exposed attribute has been individually tested on Q7CN hardware. Broken attributes are
+automatically hidden by the driver (via `is_visible`), so only working controls appear in sysfs.
+
+| Attribute | Type | Test Result |
+|-----------|------|-------------|
+| `powermode` | RW | Working — Quiet/Balanced/Performance switching verified |
+| `rapidcharge` | RW | Working — toggle 0/1, readback matches |
+| `winkey` | RW | Working — toggle 0/1, readback matches |
+| `touchpad` | RW | Working — toggle 0/1, readback matches |
+| `lockfancontroller` | RW | Working — toggle 0/1, readback matches |
+| `aslcodeversion` | RO | Working — returns 17 |
+| `isacfitforoc` | RO | Working — returns 1 |
+| `issupportcpuoc` | RO | Working — returns 0 (CPU OC not supported) |
+| `issupportgpuoc` | RO | Working — returns 5 |
+
+**Hidden (non-functional on IT5508 EC):**
+
+| Attribute | Failure Mode |
+|-----------|-------------|
+| `fan_fullspeed`, `fan_maxspeed` | WMI call succeeds but EC ignores — fans don't respond |
+| `gsync`, `overdrive`, `igpumode` | Writes silently ignored (reads back unchanged) |
+| `thermalmode` | Writes fail, reads duplicate `powermode` |
+| `powerchargemode` | All writes fail |
+| `cpumaxfrequency` | Returns garbage value (353899800) |
+| `cpu_oc`, `gpu_oc` | Read fails with -EINVAL |
+| `cpu_*_powerlimit` (6 attrs) | Read fails with -EINVAL or returns 0 |
+| `gpu_*` (6 attrs) | Read fails with -EINVAL |
 
 ### Also Tested: Legion Pro 7 16AFR10H (SMCN)
 
@@ -130,8 +156,10 @@ for hardware control:
 - **Temperature and fan monitoring** — CPU, GPU, IC temperatures and fan RPMs via standard hwmon,
   compatible with `sensors`, `psensor`, and any hwmon-aware application.
 - **Battery conservation mode** — keep battery at ~60% when on AC (via `ideapad-laptop`).
-- **Touchpad toggle**, **display overdrive**, **G-Sync toggle**, **Windows key lock**
+- **Touchpad toggle**, **Windows key lock**, **rapid charge toggle**
 - **Fan controller lock/unlock** — freeze fan speed at current level
+- Note: Display overdrive, G-Sync, and iGPU mode toggles are non-functional on Gen 10 IT5508 EC
+  models and are automatically hidden from sysfs. They may work on older models.
 
 ---
 
@@ -334,12 +362,14 @@ Changing power mode with Fn+Q or restarting resets the fan curve to firmware def
 | Feature | Sysfs Path | Notes |
 |---------|-----------|-------|
 | Touchpad | `legion/touchpad` | Also toggled with Fn+F10 |
-| Display overdrive | `legion/overdrive` | |
-| G-Sync / Hybrid mode | `legion/gsync` | |
-| Windows key | `legion/winkey` | |
-| Fan full speed | `legion/fan_fullspeed` | Dust cleaning mode |
-| Fan max speed | `legion/fan_maxspeed` | |
-| Rapid charge | `legion/rapidcharge` | |
+| Windows key lock | `legion/winkey` | 0=disabled, 1=enabled |
+| Rapid charge | `legion/rapidcharge` | 0=off, 1=on |
+| Lock fan controller | `legion/lockfancontroller` | 0=unlocked, 1=locked |
+
+Note: On Gen 10 IT5508 models (Q7CN/SMCN), the driver automatically hides 22 non-functional
+attributes. See [Tested Hardware](#sysfs-attributes-q7cn-hardware-tested) for the full breakdown.
+On older models, additional attributes (overdrive, gsync, igpumode, power limits, etc.) may be
+available and functional.
 
 ---
 
@@ -369,8 +399,16 @@ attributes, power mode read/write, WMI GUID presence, debugfs, and dry-run write
 
 ## Known Limitations
 
-### Q7CN Specific
+### Q7CN / Gen 10 IT5508
 
+- **Custom power mode (255) causes hard shutdown** — the Q7CN/SMCN firmware does not support
+  custom mode. Writing 255 to `powermode` triggers an immediate hard power-off. The driver blocks
+  this by default (`custom_powermode_unsafe` flag); override with `allow_custom_mode=1` module param
+  at your own risk.
+- **22 sysfs attributes are non-functional** on the IT5508 EC and are automatically hidden by the
+  driver. This includes fan_fullspeed, fan_maxspeed, gsync, overdrive, igpumode, thermalmode,
+  powerchargemode, CPU/GPU power limits, and CPU/GPU OC controls. WMI calls succeed but the EC
+  ignores them. See [Tested Hardware](#sysfs-attributes-q7cn-hardware-tested) for the full list.
 - `fan1_target` reports 9600 RPM while actual fan speed is ~1800 RPM — investigation deferred
 - `lockfancontroller` write path bypasses the access_method dispatcher and always hits EC portio
 - IO-Port LED (light_id 5) — firmware returns zeroed buffer from WMAF, no handler present
