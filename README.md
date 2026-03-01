@@ -31,8 +31,6 @@
 - **3 power modes**: Quiet (1), Balanced (2), Performance (3) — fully working via PPD, Fn+Q, and sysfs.
   Extreme (224/0xE0) is available via direct sysfs write only. Custom (255) is **blocked by default**
   (causes hard shutdown on Q7CN/SMCN firmware).
-- **64-byte WMI fan curve buffer** for EC 0x5508 (32-byte crashes the EC)
-- **FanFullSpeed safety clear** before fan table writes
 - **22 broken sysfs attributes hidden** — Gamezone, CPU, and GPU WMI methods that are non-functional
   on IT5508 EC are automatically hidden via `is_visible` so only working controls are exposed
 
@@ -55,8 +53,6 @@
 These fixes apply to the entire driver, not just Q7CN:
 
 - Fixed NULL dereference in multiple WMI notification handlers
-- Fixed `pwm1_mode` hwmon attribute — was hardcoded to EC access, now uses the access_method dispatcher
-- Fixed fan curve validation rejecting valid WMI3 values at point 0 (firmware returns non-zero minimum fan speeds)
 - Fixed copy-paste GUID bugs in WMI method calls
 - Fixed LED `container_of` type mismatches
 - Fixed WMI notify race conditions
@@ -89,7 +85,6 @@ These fixes apply to the entire driver, not just Q7CN:
 | fan1 RPM (CPU) | WMI OtherMethod | Working |
 | fan2 RPM (GPU) | WMI OtherMethod | Working |
 | fan3 RPM (Aux) | WMI OtherMethod | Working |
-| Fan curve (10 points, unified) | WMI FanMethod | Read + write working |
 
 ### Sysfs Attributes (Q7CN Hardware-Tested)
 
@@ -150,8 +145,6 @@ on other hardware. If you test this fork on a different model, please open an is
 The kernel module (`legion-laptop.ko`) provides standard Linux interfaces (sysfs, debugfs, hwmon)
 for hardware control:
 
-- **Fan curve control** — up to 10 points using CPU, GPU, and IC temperatures simultaneously.
-  Set speed (RPM or PWM), acceleration/deceleration, and hysteresis per point.
 - **Power mode switching** — Quiet, Balanced, Performance via PPD, Fn+Q, or sysfs.
   Extreme mode available via direct sysfs write. Custom mode (255) is blocked by default on
   Q7CN/SMCN (causes hard shutdown). See [Power Profile Integration](#power-profile-integration-ppd).
@@ -307,9 +300,6 @@ sensors
 #   CPU Temperature:  +57.0°C
 #   GPU Temperature:  +48.0°C
 #   IC Temperature:   +40.0°C
-
-# Check fan curve (debug)
-sudo cat /sys/kernel/debug/legion/fancurve
 ```
 
 ---
@@ -353,25 +343,6 @@ echo 224 | sudo tee $LEGION/powermode  # Extreme (0xE0)
 **Warning:** Custom mode (255) is **blocked by default** on Q7CN/SMCN — it causes an immediate
 hard power-off. Do not override the `allow_custom_mode` module parameter unless you have confirmed
 your firmware supports it.
-
-### Fan Curve
-
-The fan curve is controlled through standard hwmon attributes:
-
-```bash
-HWMON=/sys/module/legion_laptop/drivers/platform:legion/PNP0C09:00/hwmon/hwmon*
-
-# Read point 1 speed for fan 1
-cat $HWMON/pwm1_auto_point1_pwm
-
-# Set point 2 speed for fan 1 (~1500 RPM)
-echo 38 | sudo tee $HWMON/pwm1_auto_point2_pwm
-
-# Read the full curve (debug view)
-sudo cat /sys/kernel/debug/legion/fancurve
-```
-
-Changing power mode with Fn+Q or restarting resets the fan curve to firmware defaults.
 
 ### Battery and Charging
 
@@ -470,8 +441,8 @@ sudo bash tests/test_hardware_q7cn.sh --install-blacklist
 sudo bash tests/test_hardware_q7cn.sh --skip-build --wmi-dryrun
 ```
 
-The test script covers 18 sections: system info, module build/load, sensor readings, fan curve
-attributes, power mode read/write, WMI GUID presence, debugfs, and dry-run write validation.
+The test script covers system info, module build/load, sensor readings, power mode read/write,
+WMI GUID presence, debugfs, and dry-run write validation.
 
 ---
 
@@ -491,13 +462,8 @@ attributes, power mode read/write, WMI GUID presence, debugfs, and dry-run write
 - `lockfancontroller` write path bypasses the access_method dispatcher and always hits EC portio
 - IO-Port LED (light_id 5) — firmware returns zeroed buffer from WMAF, no handler present
 - Keyboard backlight is firmware-loaded via USB — no WMI control available
-- `minifancurve` register returns 0 — not supported on WMI3 hardware
-
 ### General
 
-- Fan curve size cannot be changed (10 points in Performance, 9 otherwise). Disable unused
-  points by setting temperature limits to 127.
-- The fan curve resets when changing power mode (Fn+Q) or restarting.
 - The module must be rebuilt after each kernel update.
 
 ---
@@ -514,16 +480,6 @@ your model details.
 
 The module may not have loaded correctly, or your model uses a different access method. Check
 `sudo dmesg | grep legion` for errors. GPU temperature may read 0 when the dGPU is in deep sleep.
-
-**Fans never stop or are always loud**
-
-Check the IC temperature limit in your fan curve — many models ship with a low IC temperature
-limit that keeps fans running. Increase the temperature limits for the lowest fan curve point.
-
-**Fans don't respond to temperature changes**
-
-The fan controller may be locked. Check `cat /sys/bus/platform/drivers/legion/PNP0C09:00/lockfancontroller`.
-Write `0` to unlock it. A BIOS update/reset can also fix this.
 
 **It stopped working after a kernel update**
 
