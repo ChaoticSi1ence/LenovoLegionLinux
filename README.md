@@ -124,13 +124,66 @@ for hardware control:
 
 - **Fan curve control** — up to 10 points using CPU, GPU, and IC temperatures simultaneously.
   Set speed (RPM or PWM), acceleration/deceleration, and hysteresis per point.
-- **Power mode switching** — Quiet, Balanced, Performance, Custom, and Extreme modes via sysfs.
-  Integrates with `power-profiles-daemon` when `enable_platformprofile=true`.
+- **Power mode switching** — Quiet, Balanced, Performance, Custom, and Extreme modes.
+  Integrates with `power-profiles-daemon` (PPD) so KDE/GNOME power sliders control firmware
+  thermal modes directly. See [Power Profile Integration](#power-profile-integration-ppd).
 - **Temperature and fan monitoring** — CPU, GPU, IC temperatures and fan RPMs via standard hwmon,
   compatible with `sensors`, `psensor`, and any hwmon-aware application.
 - **Battery conservation mode** — keep battery at ~60% when on AC (via `ideapad-laptop`).
 - **Touchpad toggle**, **display overdrive**, **G-Sync toggle**, **Windows key lock**
 - **Fan controller lock/unlock** — freeze fan speed at current level
+
+---
+
+## Power Profile Integration (PPD)
+
+The driver integrates with [power-profiles-daemon](https://gitlab.freedesktop.org/upower/power-profiles-daemon)
+(PPD) to provide **desktop power slider control of firmware thermal modes**. On KDE Plasma and
+GNOME, the power profile slider directly switches between Lenovo's firmware modes:
+
+| Desktop Slider | PPD Profile | platform_profile | Firmware Mode |
+|----------------|-------------|------------------|---------------|
+| Power Save | power-saver | quiet | Quiet (1) |
+| Balanced | balanced | balanced | Balanced (2) |
+| Performance | performance | performance | Performance (3) |
+
+This is enabled by default (`enable_platformprofile=true`). The build script installs a udev rule
+that restarts PPD when the module loads, solving a boot race condition where PPD starts before the
+driver is ready.
+
+**How it works:**
+
+```
+KDE/GNOME slider
+    -> power-profiles-daemon (D-Bus)
+        -> /sys/firmware/acpi/platform_profile (kernel)
+            -> legion-laptop driver
+                -> WMI firmware call (Quiet/Balanced/Performance)
+```
+
+Fn+Q on the keyboard also changes the firmware mode, and the change is reflected back through
+platform_profile to PPD and the desktop slider.
+
+**Verify it's working:**
+
+```bash
+# Check PPD sees the platform profile driver
+powerprofilesctl list
+# Should show: PlatformDriver: platform_profile (not "placeholder")
+
+# Check current profile
+cat /sys/firmware/acpi/platform_profile
+
+# Change from command line
+powerprofilesctl set performance
+```
+
+If PPD shows `placeholder` instead of `platform_profile`, ensure the udev rule is installed:
+
+```bash
+ls /etc/udev/rules.d/99-legion-ppd-restart.rules
+# If missing, re-run: sudo bash kernel_module/build-legion-module.sh
+```
 
 ---
 
@@ -227,24 +280,19 @@ psensor                    # GUI (install separately)
 
 ### Power Mode
 
-The current power mode can be read and changed via sysfs:
+The recommended way to switch power modes is through the **desktop power slider** (KDE/GNOME),
+which uses PPD and platform_profile. See [Power Profile Integration](#power-profile-integration-ppd).
+
+You can also toggle modes with **Fn+Q** on the keyboard, or use the command line:
 
 ```bash
-# Read current mode
+# Via PPD (recommended)
+powerprofilesctl set performance
+
+# Via sysfs (direct)
 cat /sys/bus/platform/drivers/legion/PNP0C09:00/powermode
 # Values: 1=Quiet, 2=Balanced, 3=Performance, 255=Custom, 224=Extreme
-
-# Change mode (as root)
 echo 3 | sudo tee /sys/bus/platform/drivers/legion/PNP0C09:00/powermode
-```
-
-You can also toggle modes with **Fn+Q** on the keyboard, or use `power-profiles-daemon` /
-`powerprofilesctl` if `enable_platformprofile=true` is set.
-
-To set the module parameter permanently:
-
-```bash
-echo 'options legion-laptop enable_platformprofile=true' | sudo tee /etc/modprobe.d/legion-laptop.conf
 ```
 
 ### Fan Curve

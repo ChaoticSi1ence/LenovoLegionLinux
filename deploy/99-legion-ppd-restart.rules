@@ -1,0 +1,13 @@
+# Restart power-profiles-daemon when legion-laptop registers the platform-profile device.
+#
+# Problem: PPD v0.30 checks for /sys/firmware/acpi/platform_profile once at startup.
+# If legion-laptop loads after PPD (common — PPD starts early, module loads via udev
+# WMI modalias match ~1 minute later), PPD falls back to a "placeholder" driver
+# permanently. There is no re-probe mechanism in PPD.
+#
+# Fix: This rule triggers when the platform-profile subsystem device appears and
+# restarts PPD so it picks up the real platform_profile interface.
+#
+# Installed by build-legion-module.sh or scripts/enable-kde-power-profiles.sh.
+
+ACTION=="add", SUBSYSTEM=="platform-profile", RUN+="/usr/bin/systemctl restart power-profiles-daemon.service"

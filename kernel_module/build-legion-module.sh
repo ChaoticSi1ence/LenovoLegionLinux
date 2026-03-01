@@ -23,6 +23,8 @@ INSTALL_DIR="/lib/modules/${KVER}/kernel/drivers/platform/x86"
 BLACKLIST_FILE="/etc/modprobe.d/blacklist-lenovo-wmi.conf"
 MODPROBE_CONF="/etc/modprobe.d/legion-laptop.conf"
 AUTOLOAD_CONF="/etc/modules-load.d/legion-laptop.conf"
+UDEV_RULE_SRC="$(cd "$(dirname "$0")/.." && pwd)/deploy/99-legion-ppd-restart.rules"
+UDEV_RULE_DST="/etc/udev/rules.d/99-legion-ppd-restart.rules"
 
 # Upstream modules that conflict with legion-laptop
 CONFLICTING_MODULES=(
@@ -47,15 +49,16 @@ Steps performed (install):
   2. Install to /lib/modules/$(uname -r)/kernel/drivers/platform/x86/
   3. Run depmod -a
   4. Write blacklist for conflicting upstream modules
-  5. Write/preserve modprobe options
+  5. Write/preserve modprobe options (platform_profile enabled by default)
   6. Write auto-load config
-  7. Unload conflicting modules, load legion-laptop, verify
+  7. Install udev rule to restart PPD on platform-profile device add
+  8. Unload conflicting modules, load legion-laptop, verify
 
 Steps performed (uninstall):
   1. Unload legion-laptop module
   2. Remove installed .ko from /lib/modules/
   3. Run depmod -a
-  4. Remove blacklist, modprobe conf, and autoload conf
+  4. Remove blacklist, modprobe conf, autoload conf, and udev rule
 USAGE
 }
 
@@ -129,13 +132,11 @@ do_modprobe_conf() {
     else
         cat > "${MODPROBE_CONF}" <<EOF
 # legion-laptop module options
-# Set enable_platformprofile=true after blacklisting upstream and rebooting
-options legion-laptop enable_platformprofile=false
+# Platform profile enables KDE/GNOME power slider → firmware mode control via PPD
+options legion-laptop enable_platformprofile=true
 EOF
         echo "   Created ${MODPROBE_CONF}"
-        echo "   NOTE: platform_profile is disabled by default to avoid conflict."
-        echo "   After rebooting (so blacklisted modules are gone), edit the file"
-        echo "   and set enable_platformprofile=true, then reload the module."
+        echo "   Platform profile enabled (integrates with power-profiles-daemon)"
     fi
 }
 
@@ -150,6 +151,18 @@ EOF
         echo "   Created ${AUTOLOAD_CONF}"
     else
         echo "   ${AUTOLOAD_CONF} already exists, skipping"
+    fi
+}
+
+do_udev_rule() {
+    echo ""
+    echo ">> Installing udev rule for PPD restart..."
+    if [ -f "${UDEV_RULE_SRC}" ]; then
+        cp -f "${UDEV_RULE_SRC}" "${UDEV_RULE_DST}"
+        echo "   Installed ${UDEV_RULE_DST}"
+        echo "   (Restarts power-profiles-daemon when platform-profile device appears)"
+    else
+        echo "   WARN: Source rule not found at ${UDEV_RULE_SRC}, skipping"
     fi
 }
 
@@ -209,7 +222,7 @@ do_uninstall() {
         echo ">> ${ko_path} not found, skipping"
     fi
 
-    for f in "${BLACKLIST_FILE}" "${MODPROBE_CONF}" "${AUTOLOAD_CONF}"; do
+    for f in "${BLACKLIST_FILE}" "${MODPROBE_CONF}" "${AUTOLOAD_CONF}" "${UDEV_RULE_DST}"; do
         if [ -f "$f" ]; then
             echo ">> Removing ${f}..."
             rm -f "$f"
@@ -253,6 +266,7 @@ do_install
 do_blacklist
 do_modprobe_conf
 do_autoload
+do_udev_rule
 
 if $FLAG_NO_LOAD; then
     echo ""
@@ -267,6 +281,6 @@ fi
 echo ""
 echo "Next steps:"
 echo "  1. Check dmesg: dmesg | grep -i legion | tail -10"
-echo "  2. After reboot, enable platform_profile:"
-echo "     Edit ${MODPROBE_CONF} and set enable_platformprofile=true"
-echo "     Then: sudo rmmod ${MODULE_UNDERSCORE} && sudo modprobe ${MODULE_NAME}"
+echo "  2. Reboot to activate blacklists and udev rule"
+echo "  3. KDE/GNOME power slider will control firmware modes via PPD"
+echo "     (Quiet / Balanced / Performance)"
