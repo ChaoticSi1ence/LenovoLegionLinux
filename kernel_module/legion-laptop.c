@@ -244,6 +244,13 @@ struct model_config {
 	 * revisions. Block by default; override with allow_custom_mode=1.
 	 */
 	bool custom_powermode_unsafe;
+
+	/*
+	 * Fan full-speed WMI call is silently ignored by EC firmware on some
+	 * Gen 10 models (e.g. Q7CN/SMCN with IT5508). The call succeeds but
+	 * fans don't respond. Hide fan_fullspeed/fan_maxspeed sysfs attributes.
+	 */
+	bool fan_fullspeed_unsupported;
 };
 
 /* =================================== */
@@ -1067,6 +1074,7 @@ static const struct model_config model_q7cn = {
 	.access_method_fancurve = ACCESS_METHOD_WMI3,
 	/* Gamezone WMI (FAN_GET/SET_FULLSPEED) can crash EC 0x5508; use OtherMethod */
 	.access_method_fanfullspeed = ACCESS_METHOD_WMI3,
+	.fan_fullspeed_unsupported = true,
 	.fancurve_wmi_64byte = true,
 	.acpi_check_dev = false,
 	.ramio_physical_start = 0xFE0B0400,
@@ -1099,6 +1107,7 @@ static const struct model_config model_smcn = {
 	.access_method_fancurve = ACCESS_METHOD_WMI3,
 	/* Gamezone WMI (FAN_GET/SET_FULLSPEED) can crash EC 0x5508; use OtherMethod */
 	.access_method_fanfullspeed = ACCESS_METHOD_WMI3,
+	.fan_fullspeed_unsupported = true,
 	.fancurve_wmi_64byte = true,
 	.acpi_check_dev = false,
 	.ramio_physical_start = 0xFE00D400,
@@ -5027,8 +5036,23 @@ static struct attribute *legion_sysfs_attributes[] = {
 	NULL
 };
 
+static umode_t legion_sysfs_is_visible(struct kobject *kobj,
+				       struct attribute *attr, int idx)
+{
+	struct device *dev = kobj_to_dev(kobj);
+	struct legion_private *priv = dev_get_drvdata(dev);
+
+	if (priv->conf->fan_fullspeed_unsupported &&
+	    (attr == &dev_attr_fan_fullspeed.attr ||
+	     attr == &dev_attr_fan_maxspeed.attr))
+		return 0; /* hide attribute */
+
+	return attr->mode;
+}
+
 static const struct attribute_group legion_attribute_group = {
-	.attrs = legion_sysfs_attributes
+	.attrs = legion_sysfs_attributes,
+	.is_visible = legion_sysfs_is_visible
 };
 
 static int legion_sysfs_init(struct legion_private *priv)
