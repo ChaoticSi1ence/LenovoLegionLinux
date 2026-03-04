@@ -6,7 +6,7 @@
       <img alt="LenovoLegionLinux" src="https://raw.githubusercontent.com/johnfanv2/LenovoLegionLinux/HEAD/doc/assets/legion_logo_dark.svg" height="50" style="max-width: 100%;">
     </picture>
   </a>
-  <strong>Lenovo Legion Linux Support (Q7CN Fork)</strong>
+  <strong>Lenovo Legion Linux Support (Q7CN Fork) (Hiatus)</strong>
 </h1>
 
 [![Build](https://github.com/ChaoticSi1ence/LenovoLegionLinux/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/ChaoticSi1ence/LenovoLegionLinux/actions/workflows/build.yml)
