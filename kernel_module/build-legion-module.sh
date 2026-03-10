@@ -30,7 +30,6 @@ UDEV_RULE_DST="/etc/udev/rules.d/99-legion-ppd-restart.rules"
 CONFLICTING_MODULES=(
     lenovo_wmi_gamezone
     lenovo_wmi_other
-    lenovo_wmi_events
 )
 
 # === Functions ===
