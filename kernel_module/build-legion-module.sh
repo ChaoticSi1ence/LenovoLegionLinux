@@ -29,7 +29,6 @@ UDEV_RULE_DST="/etc/udev/rules.d/99-legion-ppd-restart.rules"
 # Upstream modules that conflict with legion-laptop
 CONFLICTING_MODULES=(
     lenovo_wmi_gamezone
-    lenovo_wmi_other
 )
 
 # === Functions ===
